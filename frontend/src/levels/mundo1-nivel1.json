@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "id": "m1-n1",
+  "nombre": "¡Tu primer paso!",
+  "mundo_id": 1,
+  "banda_recomendada": "aventureros",
+  "modalidades": ["bloques", "bloques_texto", "texto"],
+  "tilemap": [
+    [1, 1, 1, 1, 1],
+    [1, 0, 0, 0, 1],
+    [1, 0, 0, 0, 1],
+    [1, 0, 0, 0, 1],
+    [1, 1, 1, 1, 1]
+  ],
+  "spawn": { "x": 1, "y": 1, "dir": "derecha" },
+  "comandos_permitidos": ["moverDerecha", "avanzar"],
+  "bloques_disponibles": ["moverDerecha", "avanzar"],
+  "codigo_inicial": {
+    "javascript": "// Haz que el héroe llegue a la estrella\nheroe.moverDerecha();\n",
+    "python": "# Haz que el héroe llegue a la estrella\nheroe.moverDerecha()\n"
+  },
+  "narracion": {
+    "intro": "¡Hola, aventurero! Soy Astro, tu guía. El héroe (círculo azul) debe llegar a la estrella dorada. ¡Usa el bloque 'mover Derecha' para moverlo!",
+    "exito": "¡Increíble! Llegaste a la salida. ¡Eres un programador nato!"
+  },
+  "objetivos": [
+    { "id": "salida", "tipo": "alcanzar_celda", "x": 3, "y": 1, "obligatorio": true }
+  ],
+  "criterios_estrella": {
+    "1": { "objetivos": ["salida"] },
+    "2": { "objetivos": ["salida"] },
+    "3": { "objetivos": ["salida"], "max_bloques": 3 }
+  },
+  "pistas": [
+    { "texto": "Arrastra el bloque 'mover Derecha' al área de trabajo para mover al héroe un paso." },
+    { "texto": "Necesitas mover a la derecha 2 veces para llegar a la estrella." }
+  ],
+  "recompensa": { "monedas": 10, "gemas": 0 },
+  "tope_ejecucion": 50000
+}

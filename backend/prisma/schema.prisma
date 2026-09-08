@@ -1,0 +1,317 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ModalidadCodigo {
+  bloques
+  bloques_texto
+  texto
+
+  @@map("modalidad_codigo")
+}
+
+enum BandaEdad {
+  exploradores
+  aventureros
+  heroes
+
+  @@map("banda_edad")
+}
+
+enum RolUsuario {
+  estudiante
+  docente
+  admin
+
+  @@map("rol_usuario")
+}
+
+enum TipoLicencia {
+  individual
+  escuela
+  prueba
+
+  @@map("tipo_licencia")
+}
+
+enum EstadoLicencia {
+  pendiente
+  activa
+  vencida
+  cancelada
+
+  @@map("estado_licencia")
+}
+
+
+model Institution {
+  id            Int       @id @default(autoincrement())
+  nombre        String    @db.VarChar(200)
+  ciudad        String?   @db.VarChar(100)
+  pais          String?   @default("Colombia") @db.VarChar(100)
+  codigoAcceso  String?   @unique @map("codigo_acceso") @db.VarChar(20)
+  activa        Boolean   @default(true)
+  creadoEn      DateTime  @default(now()) @map("creado_en") @db.Timestamptz()
+  usuarios      User[]
+  aulas         Classroom[]
+  licencias     Licencia[]
+
+  @@map("instituciones")
+}
+
+model User {
+  id                    Int              @id @default(autoincrement())
+  email                 String           @unique @db.VarChar(255)
+  passwordHash          String           @map("password_hash") @db.VarChar(255)
+  nombre                String           @db.VarChar(150)
+  rol                   RolUsuario       @default(estudiante)
+  bandaEdad             BandaEdad?       @map("banda_edad")
+  modalidadPref         ModalidadCodigo? @default(bloques) @map("modalidad_pref")
+  avatarConfig          Json?            @default("{\"color\": \"azul\", \"sombrero\": null, \"accesorio\": null}") @map("avatar_config") @db.JsonB
+  monedas               Int              @default(0)
+  gemas                 Int              @default(0)
+  rachaDias             Int              @default(0) @map("racha_dias")
+  ultimaActividad       DateTime?        @map("ultima_actividad") @db.Date
+  fechaNacimiento       DateTime?        @map("fecha_nacimiento") @db.Date
+  nombreTutor           String?          @map("nombre_tutor") @db.VarChar(150)
+  emailTutor            String?          @map("email_tutor") @db.VarChar(255)
+  consentimientoTutor   Boolean          @default(false) @map("consentimiento_tutor")
+  fechaConsentimiento   DateTime?        @map("fecha_consentimiento") @db.Timestamptz()
+  institucionId         Int?             @map("institucion_id")
+  activo                Boolean          @default(true)
+  creadoEn              DateTime         @default(now()) @map("creado_en") @db.Timestamptz()
+  actualizadoEn         DateTime         @default(now()) @map("actualizado_en") @db.Timestamptz()
+
+  institucion           Institution?     @relation(fields: [institucionId], references: [id])
+  aulas                 Classroom[]      @relation("DocenteAulas")
+  inscripciones         Enrollment[]
+  sesiones              LevelSession[]
+  envios                CodeSubmission[]
+  logros                UserAchievement[]
+  inventario            UserInventory[]
+  licencias             Licencia[]
+
+  @@map("usuarios")
+}
+
+model Classroom {
+  id            Int          @id @default(autoincrement())
+  nombre        String       @db.VarChar(150)
+  codigoAcceso  String       @unique @map("codigo_acceso") @db.VarChar(20)
+  docenteId     Int          @map("docente_id")
+  institucionId Int?         @map("institucion_id")
+  activa        Boolean      @default(true)
+  creadoEn      DateTime     @default(now()) @map("creado_en") @db.Timestamptz()
+
+  docente       User         @relation("DocenteAulas", fields: [docenteId], references: [id])
+  institucion   Institution? @relation(fields: [institucionId], references: [id])
+  inscripciones Enrollment[]
+  asignaciones  Assignment[]
+
+  @@map("aulas")
+}
+
+model Assignment {
+  id            Int        @id @default(autoincrement())
+  docenteId     Int        @map("docente_id")
+  aulaId        Int?       @map("aula_id")
+  estudianteId  Int?       @map("estudiante_id")
+  mundoId       Int?       @map("mundo_id")
+  nivelId       Int?       @map("nivel_id")
+  titulo        String?    @db.VarChar(200)
+  instrucciones String?
+  fechaLimite   DateTime?  @map("fecha_limite") @db.Date
+  creadoEn      DateTime   @default(now()) @map("creado_en") @db.Timestamptz()
+
+  aula          Classroom? @relation(fields: [aulaId], references: [id])
+  mundo         World?     @relation(fields: [mundoId], references: [id])
+
+  @@map("asignaciones")
+}
+
+model Enrollment {
+  id            Int       @id @default(autoincrement())
+  estudianteId  Int       @map("estudiante_id")
+  aulaId        Int       @map("aula_id")
+  inscritoEn    DateTime  @default(now()) @map("inscrito_en") @db.Timestamptz()
+
+  estudiante    User      @relation(fields: [estudianteId], references: [id])
+  aula          Classroom @relation(fields: [aulaId], references: [id])
+
+  @@unique([estudianteId, aulaId])
+  @@map("inscripciones")
+}
+
+model World {
+  id              Int       @id @default(autoincrement())
+  nombre          String    @db.VarChar(150)
+  descripcion     String?
+  numeroOrden     Int       @map("numero_orden")
+  categoria       String    @default("programacion") @db.VarChar(40)
+  icono           String?   @db.VarChar(100)
+  colorPrimario   String?   @default("#6B46C1") @map("color_primario") @db.VarChar(20)
+  colorSecundario String?   @default("#4299E1") @map("color_secundario") @db.VarChar(20)
+  bloqueado       Boolean   @default(true)
+  totalNiveles    Int       @default(0) @map("total_niveles")
+  creadoEn        DateTime  @default(now()) @map("creado_en") @db.Timestamptz()
+  niveles         Level[]
+  asignaciones    Assignment[]
+
+  @@unique([categoria, numeroOrden])
+  @@map("mundos")
+}
+
+model Level {
+  id                Int              @id @default(autoincrement())
+  mundoId           Int              @map("mundo_id")
+  nombre            String           @db.VarChar(200)
+  numeroOrden       Int              @map("numero_orden")
+  config            Json             @db.JsonB
+  bandaRecomendada  BandaEdad?       @map("banda_recomendada")
+  activo            Boolean          @default(true)
+  creadoEn          DateTime         @default(now()) @map("creado_en") @db.Timestamptz()
+
+  mundo             World            @relation(fields: [mundoId], references: [id])
+  sesiones          LevelSession[]
+  envios            CodeSubmission[]
+  pistas            Hint[]
+
+  @@unique([mundoId, numeroOrden])
+  @@map("niveles")
+}
+
+model LevelSession {
+  id              Int              @id @default(autoincrement())
+  usuarioId       Int              @map("usuario_id")
+  nivelId         Int              @map("nivel_id")
+  modalidadUsada  ModalidadCodigo? @map("modalidad_usada")
+  programaBloques Json?            @map("programa_bloques") @db.JsonB
+  intentos        Int              @default(0)
+  tiempoSegundos  Int              @default(0) @map("tiempo_segundos")
+  completada      Boolean          @default(false)
+  estrellas       Int              @default(0)
+  monedasGanadas  Int              @default(0) @map("monedas_ganadas")
+  gemasGanadas    Int              @default(0) @map("gemas_ganadas")
+  iniciadaEn      DateTime         @default(now()) @map("iniciada_en") @db.Timestamptz()
+  completadaEn    DateTime?        @map("completada_en") @db.Timestamptz()
+
+  usuario         User             @relation(fields: [usuarioId], references: [id])
+  nivel           Level            @relation(fields: [nivelId], references: [id])
+  envios          CodeSubmission[]
+
+  @@map("sesiones_nivel")
+}
+
+model CodeSubmission {
+  id                Int              @id @default(autoincrement())
+  sesionId          Int              @map("sesion_id")
+  usuarioId         Int              @map("usuario_id")
+  nivelId           Int              @map("nivel_id")
+  codigo            String
+  origen            ModalidadCodigo
+  resultado         Json?            @db.JsonB
+  exitoso           Boolean          @default(false)
+  tiempoEjecucionMs Int?             @map("tiempo_ejecucion_ms")
+  enviadoEn         DateTime         @default(now()) @map("enviado_en") @db.Timestamptz()
+
+  sesion            LevelSession     @relation(fields: [sesionId], references: [id])
+  usuario           User             @relation(fields: [usuarioId], references: [id])
+  nivel             Level            @relation(fields: [nivelId], references: [id])
+
+  @@map("envios_codigo")
+}
+
+model Hint {
+  id            Int    @id @default(autoincrement())
+  nivelId       Int    @map("nivel_id")
+  orden         Int
+  texto         String
+  urlAudio      String? @map("url_audio") @db.VarChar(500)
+  costoMonedas  Int    @default(0) @map("costo_monedas")
+
+  nivel         Level  @relation(fields: [nivelId], references: [id])
+
+  @@map("pistas")
+}
+
+model Achievement {
+  id          Int               @id @default(autoincrement())
+  nombre      String            @db.VarChar(150)
+  descripcion String?
+  icono       String?           @db.VarChar(200)
+  condicion   Json              @db.JsonB
+  rareza      String?           @default("comun") @db.VarChar(50)
+  activo      Boolean           @default(true)
+  usuarios    UserAchievement[]
+
+  @@map("logros")
+}
+
+model UserAchievement {
+  id          Int         @id @default(autoincrement())
+  usuarioId   Int         @map("usuario_id")
+  logroId     Int         @map("logro_id")
+  obtenidoEn  DateTime    @default(now()) @map("obtenido_en") @db.Timestamptz()
+
+  usuario     User        @relation(fields: [usuarioId], references: [id])
+  logro       Achievement @relation(fields: [logroId], references: [id])
+
+  @@unique([usuarioId, logroId])
+  @@map("usuarios_logros")
+}
+
+model StoreItem {
+  id            Int             @id @default(autoincrement())
+  nombre        String          @db.VarChar(150)
+  tipo          String          @db.VarChar(50)
+  descripcion   String?
+  imagenUrl     String?         @map("imagen_url") @db.VarChar(500)
+  costoMonedas  Int             @default(0) @map("costo_monedas")
+  costoGemas    Int             @default(0) @map("costo_gemas")
+  datos         Json?           @db.JsonB
+  activo        Boolean         @default(true)
+  inventarios   UserInventory[]
+
+  @@map("items_tienda")
+}
+
+model UserInventory {
+  id          Int       @id @default(autoincrement())
+  usuarioId   Int       @map("usuario_id")
+  itemId      Int       @map("item_id")
+  compradoEn  DateTime  @default(now()) @map("comprado_en") @db.Timestamptz()
+
+  usuario     User      @relation(fields: [usuarioId], references: [id])
+  item        StoreItem @relation(fields: [itemId], references: [id])
+
+  @@unique([usuarioId, itemId])
+  @@map("inventario_usuario")
+}
+
+model Licencia {
+  id              Int             @id @default(autoincrement())
+  tipo            TipoLicencia
+  estado          EstadoLicencia  @default(pendiente)
+  usuarioId       Int?            @map("usuario_id")
+  institucionId   Int?            @map("institucion_id")
+  precioCop       Int             @map("precio_cop")
+  mpPaymentId     String?         @map("mp_payment_id") @db.VarChar(60)
+  mpStatus        String?         @map("mp_status") @db.VarChar(40)
+  mpStatusDetail  String?         @map("mp_status_detail") @db.VarChar(80)
+  mpPreferenceId  String?         @map("mp_preference_id") @db.VarChar(80)
+  emailComprador  String?         @map("email_comprador") @db.VarChar(255)
+  inicioVigencia  DateTime?       @map("inicio_vigencia") @db.Timestamptz()
+  finVigencia     DateTime?       @map("fin_vigencia") @db.Timestamptz()
+  creadoEn        DateTime        @default(now()) @map("creado_en") @db.Timestamptz()
+  actualizadoEn   DateTime        @default(now()) @updatedAt @map("actualizado_en") @db.Timestamptz()
+
+  usuario         User?           @relation(fields: [usuarioId], references: [id])
+  institucion     Institution?    @relation(fields: [institucionId], references: [id])
+
+  @@map("licencias")
+}

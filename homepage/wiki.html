@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wiki & Documentación — Codexia</title>
+  <meta name="description" content="Documentación completa de Codexia: materias, tipos de actividad, editores, comandos del héroe, gamificación, mini-juegos, voz, panel docente y glosario." />
+  <link rel="canonical" href="https://codexialab.com/wiki.html" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🚀</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+</head>
+<body>
+  <div class="bg-fx"></div><div class="bg-grid"></div>
+  <header class="nav"><div class="container nav-inner">
+    <a class="brand" href="index.html"><span class="logo">🚀</span> Codexia</a>
+    <nav class="nav-links"><a href="index.html">Inicio</a><a href="modulos.html">Módulos</a><a href="funcionalidades.html">Funcionalidades</a><a href="como-funciona.html">Cómo funciona</a><a href="planes.html">Planes</a><a href="testimonios.html">Testimonios</a><a href="wiki.html">Wiki</a></nav>
+    <div class="nav-cta"><a class="btn btn-gold btn-sm" href="planes.html">🔑 <span class="label-full">Renovar licencia</span></a><a class="btn btn-primary btn-sm" href="/app">▶ <span class="label-full">Entrar a</span> Codexia</a><button class="nav-toggle" aria-label="Menú">☰</button></div>
+  </div></header>
+
+  <main>
+    <section class="page-hero" style="padding-bottom:1rem"><div class="container">
+      <p class="breadcrumb"><a href="index.html">Inicio</a> / Wiki</p>
+      <span class="eyebrow">Documentación</span>
+      <h1 class="h-xl">Wiki de <span class="grad-text">Codexia</span></h1>
+      <p class="lead center" style="margin:.8rem auto 0">Todo lo que necesitas saber sobre las herramientas y elementos de la plataforma.</p>
+    </div></section>
+
+    <section style="padding:1rem 0 4rem"><div class="container wiki">
+      <aside class="glass wiki-side">
+        <input id="wikiSearch" placeholder="🔎 Buscar…" style="width:100%;padding:.6rem .8rem;border-radius:10px;border:1px solid var(--border);background:rgba(0,0,0,.3);color:var(--text);font-family:inherit;margin-bottom:.5rem" />
+        <h4>Empezar</h4>
+        <a href="#intro">Introducción</a><a href="#acceso">Acceso y cuentas</a><a href="#preescolar">Modo Preescolar</a>
+        <h4>Contenido</h4>
+        <a href="#materias">Materias</a><a href="#actividades">Tipos de actividad</a><a href="#editores">Editores y modalidades</a><a href="#comandos">Comandos del héroe</a>
+        <h4>Gamificación</h4>
+        <a href="#recompensas">Estrellas y monedas</a><a href="#logros">Logros</a><a href="#tienda">Tienda y avatar</a><a href="#minijuegos">Mini-juegos</a>
+        <h4>Más</h4>
+        <a href="#voz">Voz natural</a><a href="#docente">Panel docente</a><a href="#seguridad">Seguridad y privacidad</a><a href="#glosario">Glosario</a>
+      </aside>
+
+      <article class="glass wiki-main" style="padding:1.6rem 2rem">
+        <h2 id="intro">Introducción</h2>
+        <p>Codexia es una plataforma educativa gamificada cuyo lema es <em>“La tierra donde cada reto se resuelve programando”</em>. Está pensada para niños de 4 a 12 años y organiza el aprendizaje en <b>materias</b>, cada una dividida en <b>mundos</b> que contienen <b>actividades</b>.</p>
+        <div class="note">💡 Sugerencia: empieza por la materia <b>Programación</b> (Mundo 1) o por <b>Preescolar</b> si el niño aún no lee.</div>
+
+        <h2 id="acceso">Acceso y cuentas</h2>
+        <ul>
+          <li><b>Estudiante/Docente:</b> inician sesión con correo y contraseña desde el botón <span class="kbd">Entrar a Codexia</span>.</li>
+          <li><b>Roles:</b> <code>estudiante</code>, <code>docente</code> y <code>admin</code>. Docentes y admin pueden explorar cualquier mundo sin desbloquearlo.</li>
+          <li><b>Bandas de edad:</b> Exploradores (6–7), Aventureros (8–10) y Héroes (11–12), que ajustan la modalidad de programación.</li>
+        </ul>
+
+        <h2 id="preescolar">Modo Preescolar</h2>
+        <p>Sección para niños de 4 a 6 años que aún no leen ni escriben. Se entra <b>sin contraseña</b> conociendo la ruta <code>/preescolar</code>, pensado para que los más pequeños no dependan de un correo. Todo se guía con <b>voz natural</b> y gráficos grandes.</p>
+        <ul>
+          <li><b>Matemáticas:</b> contar, sumar, restar, clasificar, comparar, patrones, posiciones, medidas y figuras.</li>
+          <li><b>Lectoescritura:</b> plan de 20 semanas con enfoque fonético, desde sonidos hasta lectura comprensiva.</li>
+          <li><b>Sub-actividades:</b> <code>contar</code>, <code>elegir</code>, <code>operación</code>, <code>ordenar</code> y <code>trazo</code> (con guía y validación del trazo).</li>
+        </ul>
+
+        <h2 id="materias">Materias</h2>
+        <p>Codexia incluye 10 materias: <b>Programación, Lógica, Aritmética, Geometría, Informática, Seguridad en Internet, Inteligencia Artificial, Física</b> y la sección <b>Preescolar (Matemáticas y Lectoescritura)</b>. Cada materia tiene su propia paleta de color e ícono y se desbloquea por progreso.</p>
+
+        <h2 id="actividades">Tipos de actividad</h2>
+        <ul>
+          <li><b>Rejilla (programación):</b> mueve al héroe por un mapa con comandos.</li>
+          <li><b>Quiz:</b> 6 tipos de pregunta — opción, verdadero/falso, completar, ordenar, relacionar y agrupar. Incluye fase de <em>contenido</em> (aprende) y, en 1 de cada 3, un mini-juego.</li>
+          <li><b>Arcade:</b> juego tipo runner con saltos, monedas y “puertas del saber”.</li>
+          <li><b>Laboratorio:</b> simuladores interactivos (área, fracciones, recta numérica, flotación).</li>
+          <li><b>Neurona (IA):</b> ajusta pesos y sesgo para entrenar un perceptrón.</li>
+        </ul>
+
+        <h2 id="editores">Editores y modalidades</h2>
+        <p>Hay tres modalidades que se eligen por edad o preferencia:</p>
+        <ul>
+          <li><span class="kbd">🧩 Bloques</span> — editor visual (Blockly). Categorías de variables, funciones y listas aparecen según el nivel.</li>
+          <li><span class="kbd">🔀 Mixto</span> — bloques que muestran en vivo el código equivalente.</li>
+          <li><span class="kbd">💻 Código</span> — editor de texto (Monaco) para escribir JavaScript real.</li>
+        </ul>
+
+        <h2 id="comandos">Comandos del héroe</h2>
+        <p>Los retos de programación se resuelven con instrucciones como:</p>
+        <ul>
+          <li><code>heroe.avanzar()</code> — avanza un paso en la dirección actual.</li>
+          <li><code>heroe.girarDerecha()</code> / <code>heroe.girarIzquierda()</code> — gira 90°.</li>
+          <li><code>heroe.detectarObstaculo()</code> / <code>heroe.puedeAvanzar()</code> — sensores para decidir.</li>
+          <li>Estructuras: <code>repetir(n) { … }</code>, <code>si (condición) { … }</code>, <code>mientras (…) { … }</code>, variables y funciones.</li>
+        </ul>
+
+        <h2 id="recompensas">Estrellas y monedas</h2>
+        <p>Cada actividad otorga hasta <b>3 estrellas</b> según el desempeño, además de <b>monedas</b> 🪙 (la moneda de Codexia) y, en hitos, <b>gemas</b> 💎. Se usan en la tienda.</p>
+
+        <h2 id="logros">Logros</h2>
+        <p>Los logros se desbloquean al cumplir condiciones (completar niveles, ganar estrellas, terminar mundos o materias, jugar tipos de actividad). Algunos entregan <b>objetos de la tienda gratis</b> y desbloquean <b>mundos especiales</b>.</p>
+
+        <h2 id="tienda">Tienda y avatar</h2>
+        <p>Con monedas y gemas se compran <b>colores, sombreros, coronas, accesorios, mascotas, pociones, súper poderes, RAM, stickers, comidas y gemas</b>. El avatar puede ser <b>niño o niña</b> y se personaliza. Los objetos <em>exclusivos</em> solo se ganan completando mundos especiales.</p>
+
+        <h2 id="minijuegos">Mini-juegos</h2>
+        <p>10 plantillas que aparecen en 1 de cada 3 actividades de quiz:</p>
+        <ul>
+          <li>🔤 Sopa de letras · 🪢 Ahorcado · 🃏 Memoria · 🎈 Globos · 🌧️ Lluvia de respuestas</li>
+          <li>🔨 Golpea al topo · 🕹️ El camino (flechas) · 🟡 Come-puntos · 🍄 Plataformas · 🧩 Rompecabezas</li>
+        </ul>
+
+        <h2 id="voz">Voz natural</h2>
+        <p>Las instrucciones de Preescolar y las pistas se narran con <b>voz natural</b> (no robótica), generada de forma profesional. El botón 🔊 repite la indicación cuantas veces se necesite.</p>
+
+        <h2 id="docente">Panel docente</h2>
+        <ul>
+          <li><b>Grupos y sedes:</b> organiza estudiantes por aula e institución.</li>
+          <li><b>Estudiantes:</b> alta individual o <b>carga masiva</b> (pegando una lista).</li>
+          <li><b>Asignaciones:</b> por aula o por estudiante, de un mundo completo o actividades específicas.</li>
+          <li><b>Estadísticas:</b> top de estudiantes, progreso por materia y avance de cada asignación.</li>
+        </ul>
+
+        <h2 id="seguridad">Seguridad y privacidad</h2>
+        <p>El código de los estudiantes se ejecuta en un <b>entorno aislado</b> con límites de tiempo e instrucciones. Se solicita <b>consentimiento de tutores</b> para menores y se cumple la normativa de protección de datos (Ley 1581 en Colombia).</p>
+
+        <h2 id="glosario">Glosario</h2>
+        <ul>
+          <li><b>Mundo:</b> conjunto de actividades de una materia.</li>
+          <li><b>Banda de edad:</b> nivel de dificultad según la edad.</li>
+          <li><b>Bucle:</b> repetir acciones varias veces.</li>
+          <li><b>Condición:</b> tomar decisiones (<code>si…</code>).</li>
+          <li><b>Algoritmo:</b> serie de pasos para resolver un problema.</li>
+          <li><b>Perceptrón:</b> neurona artificial que aprende de ejemplos.</li>
+        </ul>
+
+        <div class="note" style="margin-top:2rem">¿No encuentras algo? Escríbenos a <a href="mailto:soporte@codexialab.com">soporte@codexialab.com</a> y lo agregamos a la wiki.</div>
+      </article>
+    </div></section>
+  </main>
+
+  <footer class="footer"><div class="container"><div class="footer-bottom" style="border:none;margin:0;padding:0"><span>© <span data-year>2026</span> Codexia.</span><a href="index.html">← Volver al inicio</a></div></div></footer>
+  <script src="js/main.js"></script>
+  <script>
+    // Búsqueda simple en la wiki: filtra secciones por texto
+    var q = document.getElementById('wikiSearch');
+    if (q) q.addEventListener('input', function () {
+      var term = this.value.toLowerCase().trim();
+      document.querySelectorAll('.wiki-main h2').forEach(function (h) {
+        var sec = []; var el = h;
+        // recopila hasta el siguiente h2
+        var nodes = [h]; var n = h.nextElementSibling;
+        while (n && n.tagName !== 'H2') { nodes.push(n); n = n.nextElementSibling; }
+        var text = nodes.map(function (x) { return x.textContent; }).join(' ').toLowerCase();
+        var show = !term || text.indexOf(term) !== -1;
+        nodes.forEach(function (x) { x.style.display = show ? '' : 'none'; });
+      });
+    });
+  </script>
+</body>
+</html>

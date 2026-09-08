@@ -1,0 +1,16 @@
+node_modules
+**/node_modules
+backend/dist
+frontend/dist
+.git
+.gitignore
+*.log
+BackupBD
+planes
+*.md
+plan_desarrollo_plataforma_educativa.md
+tender-painting-twilight.md
+.vscode
+.idea
+**/.env
+npm-debug.log*

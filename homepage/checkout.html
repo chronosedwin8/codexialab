@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Compra tu licencia — Codexia</title>
+  <meta name="description" content="Finaliza tu compra de Codexia de forma segura. Licencia Individual o Escuela con renovación anual." />
+  <!-- El checkout no debe indexarse en buscadores -->
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🚀</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    .checkout-grid{display:grid;grid-template-columns:1.15fr .85fr;gap:1.6rem;align-items:start}
+    @media(max-width:860px){.checkout-grid{grid-template-columns:1fr}}
+    .field{margin:0 0 1rem}
+    .field label{display:block;font-size:.82rem;color:var(--muted);margin-bottom:.4rem;font-weight:600}
+    .field input,.field select{width:100%;padding:.8rem 1rem;border-radius:12px;border:1px solid var(--border);background:rgba(0,0,0,.28);color:var(--text);font-family:inherit;font-size:1rem}
+    .field input:focus,.field select:focus{outline:none;border-color:var(--primary);box-shadow:0 0 0 3px rgba(124,58,237,.25)}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:.9rem}
+    .row-3{display:grid;grid-template-columns:1.4fr .8fr .8fr;gap:.9rem}
+    .sec-title{font-family:'Space Grotesk',sans-serif;font-size:1.05rem;margin:.2rem 0 1rem;display:flex;align-items:center;gap:.5rem}
+    .summary-row{display:flex;justify-content:space-between;gap:1rem;padding:.55rem 0;color:var(--muted)}
+    .summary-total{display:flex;justify-content:space-between;font-size:1.35rem;font-weight:700;color:var(--text);border-top:1px solid var(--border);margin-top:.6rem;padding-top:.9rem}
+    .brandbar{display:flex;align-items:center;gap:.7rem;margin-bottom:1.1rem}
+    .brandbar .logo{font-size:1.8rem}
+    .brandbar b{font-family:'Space Grotesk',sans-serif;font-size:1.25rem}
+    .secure-note{font-size:.82rem;color:var(--muted);display:flex;align-items:center;gap:.4rem;margin-top:.9rem;justify-content:center}
+    .card-visual{background:var(--grad);border-radius:14px;padding:1rem 1.2rem;color:#fff;margin-bottom:1.2rem}
+    .card-visual .cc{font-size:1.1rem;letter-spacing:2px;font-family:'Space Grotesk',sans-serif}
+    .msg{display:none;padding:.9rem 1rem;border-radius:12px;margin:1rem 0;font-weight:600}
+    .msg.err{display:block;background:rgba(239,68,68,.12);border:1px solid rgba(239,68,68,.4);color:#fca5a5}
+    .msg.info{display:block;background:rgba(34,211,238,.1);border:1px solid rgba(34,211,238,.35);color:#a5f3fc}
+    .plan-switch{display:flex;gap:.5rem;margin-bottom:1.2rem}
+    .plan-switch a{flex:1;text-align:center;padding:.6rem;border-radius:12px;border:1px solid var(--border);color:var(--muted);text-decoration:none;font-weight:600;font-size:.9rem}
+    .plan-switch a.on{border-color:var(--primary);color:var(--text);background:rgba(124,58,237,.15)}
+    .btn-pay{width:100%;justify-content:center;font-size:1.05rem;padding:1rem}
+    .btn-pay[disabled]{opacity:.6;cursor:not-allowed}
+    .esc-only{display:none}
+    body.plan-escuela .esc-only{display:block}
+  </style>
+</head>
+<body>
+  <div class="bg-fx"></div><div class="bg-grid"></div>
+  <header class="nav"><div class="container nav-inner">
+    <a class="brand" href="index.html"><span class="logo">🚀</span> Codexia</a>
+    <div class="nav-cta"><a class="btn btn-ghost btn-sm" href="planes.html">← Ver planes</a></div>
+  </div></header>
+
+  <main>
+    <section class="section-pad"><div class="container" style="max-width:1000px">
+      <div class="brandbar"><span class="logo">🚀</span><b>Codexia</b><span class="muted" style="margin-left:auto;font-size:.85rem">Compra segura</span></div>
+
+      <div class="checkout-grid">
+        <!-- FORMULARIO -->
+        <div class="glass" style="padding:1.6rem">
+          <div class="plan-switch">
+            <a href="checkout.html?plan=prueba" data-plan="prueba">⏱️ Prueba</a>
+            <a href="checkout.html?plan=individual" data-plan="individual">👤 Individual</a>
+            <a href="checkout.html?plan=escuela" data-plan="escuela">🏫 Escuela</a>
+          </div>
+
+          <div id="msg" class="msg"></div>
+
+          <form id="checkoutForm" novalidate>
+            <!-- CUENTA -->
+            <p class="sec-title">👤 Tu cuenta Codexia</p>
+            <div class="field">
+              <label for="nombre">Nombre completo</label>
+              <input id="nombre" name="nombre" autocomplete="name" required placeholder="Ej. Ana Gómez" />
+            </div>
+            <div class="field">
+              <label for="email">Correo electrónico</label>
+              <input id="email" name="email" type="email" autocomplete="email" required placeholder="tucorreo@ejemplo.com" />
+            </div>
+            <div class="field">
+              <label for="password">Contraseña (mínimo 6 caracteres)</label>
+              <input id="password" name="password" type="password" autocomplete="new-password" required minlength="6" placeholder="••••••••" />
+            </div>
+
+            <!-- INSTITUCIÓN (solo Escuela) -->
+            <div class="esc-only">
+              <p class="sec-title" style="margin-top:1.4rem">🏫 Tu institución</p>
+              <div class="field">
+                <label for="instNombre">Nombre de la institución</label>
+                <input id="instNombre" name="instNombre" placeholder="Colegio San José" />
+              </div>
+              <div class="field">
+                <label for="instCiudad">Ciudad</label>
+                <input id="instCiudad" name="instCiudad" placeholder="Bogotá" />
+              </div>
+            </div>
+
+            <!-- PAGO -->
+            <p class="sec-title" style="margin-top:1.4rem">💳 Datos de pago</p>
+            <div class="field">
+              <label for="cardNumber">Número de tarjeta</label>
+              <input id="cardNumber" inputmode="numeric" autocomplete="cc-number" required placeholder="1234 5678 9012 3456" maxlength="23" />
+            </div>
+            <div class="field">
+              <label for="cardholderName">Titular de la tarjeta (como aparece)</label>
+              <input id="cardholderName" autocomplete="cc-name" required placeholder="ANA GOMEZ" />
+            </div>
+            <div class="row-3">
+              <div class="field">
+                <label for="cardExpiration">Vencimiento</label>
+                <input id="cardExpiration" inputmode="numeric" autocomplete="cc-exp" required placeholder="MM/AA" maxlength="5" />
+              </div>
+              <div class="field">
+                <label for="securityCode">CVV</label>
+                <input id="securityCode" inputmode="numeric" autocomplete="cc-csc" required placeholder="123" maxlength="4" />
+              </div>
+              <div class="field">
+                <label for="installments">Cuotas</label>
+                <select id="installments"><option value="1">1</option></select>
+              </div>
+            </div>
+            <div class="row">
+              <div class="field">
+                <label for="idType">Tipo de doc.</label>
+                <select id="idType">
+                  <option value="CC">CC</option>
+                  <option value="CE">CE</option>
+                  <option value="NIT">NIT</option>
+                  <option value="Otro">Otro</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="idNumber">Número de documento</label>
+                <input id="idNumber" inputmode="numeric" required placeholder="1234567890" />
+              </div>
+            </div>
+
+            <button type="submit" id="payBtn" class="btn btn-primary btn-pay">Pagar <span id="payAmount"></span></button>
+            <p class="secure-note">🔒 Tus datos de tarjeta viajan cifrados directo a la pasarela. Codexia no los almacena.</p>
+          </form>
+        </div>
+
+        <!-- RESUMEN -->
+        <div class="glass" style="padding:1.6rem;position:sticky;top:90px">
+          <div class="card-visual">
+            <div class="muted" style="color:rgba(255,255,255,.85);font-size:.8rem">Licencia Codexia</div>
+            <div class="cc" id="planLabel">—</div>
+            <div id="planSub" style="font-size:.82rem;color:rgba(255,255,255,.85);margin-top:.3rem">Renovación anual</div>
+          </div>
+          <p class="sec-title">🧾 Resumen</p>
+          <div class="summary-row"><span id="planName">Licencia</span><span id="planPrice">—</span></div>
+          <div class="summary-row"><span>Vigencia</span><span id="vigencia">1 año</span></div>
+          <div class="summary-total"><span>Total</span><span id="totalPrice">—</span></div>
+          <p class="muted" style="font-size:.8rem;margin-top:1rem">Al pagar aceptas los términos de Codexia. Recibirás acceso inmediato al aprobarse el pago.</p>
+          <ul style="list-style:none;padding:0;margin:1rem 0 0;font-size:.85rem;color:var(--muted);display:grid;gap:.4rem">
+            <li>✅ Acceso completo a las 10 materias</li>
+            <li>✅ +200 juegos y laboratorios</li>
+            <li class="esc-only">✅ Panel docente y código de institución</li>
+          </ul>
+        </div>
+      </div>
+    </div></section>
+  </main>
+
+  <footer class="footer"><div class="container"><div class="footer-bottom" style="border:none;margin:0;padding:0"><span>© <span data-year>2026</span> Codexia.</span><a href="planes.html">← Volver a planes</a></div></div></footer>
+
+  <!-- SDK de Mercado Pago (tokeniza la tarjeta en el navegador) -->
+  <script src="https://sdk.mercadopago.com/js/v2"></script>
+  <script src="js/main.js"></script>
+  <script src="js/checkout.js"></script>
+</body>
+</html>

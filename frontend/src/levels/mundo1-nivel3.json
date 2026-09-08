@@ -1,0 +1,42 @@
+{
+  "version": 2,
+  "id": "m1-n3",
+  "nombre": "El poder de repetir",
+  "mundo_id": 1,
+  "banda_recomendada": "aventureros",
+  "modalidades": ["bloques", "bloques_texto", "texto"],
+  "tilemap": [
+    [1, 1, 1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 1],
+    [1, 0, 1, 1, 1, 1, 1, 0, 1],
+    [1, 0, 0, 0, 0, 0, 0, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1, 1, 1]
+  ],
+  "spawn": { "x": 1, "y": 1, "dir": "derecha" },
+  "comandos_permitidos": ["moverArriba", "moverAbajo", "moverIzquierda", "moverDerecha", "avanzar", "girarDerecha", "girarIzquierda", "repetir"],
+  "bloques_disponibles": ["moverArriba", "moverAbajo", "moverIzquierda", "moverDerecha", "avanzar", "girarDerecha", "girarIzquierda", "repetir"],
+  "codigo_inicial": {
+    "javascript": "// Usa un bucle para no escribir tanto\n// El héroe debe recoger la moneda y llegar a la estrella\nfor (let i = 0; i < 6; i++) {\n  heroe.moverDerecha();\n}\n",
+    "python": "# Usa un bucle para repetir acciones\nfor i in range(6):\n    heroe.moverDerecha()\n"
+  },
+  "narracion": {
+    "intro": "¡Ahora aprenderás el poder de los bucles! En vez de escribir 'mover Derecha' muchas veces, ¡usa un bloque 'repetir'! Recoge la moneda de arriba y llega a la estrella.",
+    "exito": "¡Eres un maestro de los bucles! Los programadores nunca repiten código cuando pueden usar un bucle."
+  },
+  "objetivos": [
+    { "id": "salida", "tipo": "alcanzar_celda", "x": 7, "y": 3, "obligatorio": true },
+    { "id": "moneda_extra", "tipo": "recoger_item", "x": 4, "y": 1, "obligatorio": false }
+  ],
+  "criterios_estrella": {
+    "1": { "objetivos": ["salida"] },
+    "2": { "objetivos": ["salida", "moneda_extra"] },
+    "3": { "objetivos": ["salida", "moneda_extra"], "max_bloques": 5 }
+  },
+  "pistas": [
+    { "texto": "Un bloque 'repetir 6 veces' con 'mover Derecha' adentro te lleva por todo el camino de arriba." },
+    { "texto": "Primero ve a la derecha (recoges la moneda en el camino), luego baja hasta la estrella." },
+    { "texto": "Solución: repetir 6 veces { mover Derecha }, luego mover Abajo 2 veces." }
+  ],
+  "recompensa": { "monedas": 20, "gemas": 2 },
+  "tope_ejecucion": 50000
+}

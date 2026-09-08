@@ -1,0 +1,41 @@
+{
+  "version": 2,
+  "id": "m1-n2",
+  "nombre": "El camino largo",
+  "mundo_id": 1,
+  "banda_recomendada": "aventureros",
+  "modalidades": ["bloques", "bloques_texto", "texto"],
+  "tilemap": [
+    [1, 1, 1, 1, 1, 1, 1],
+    [1, 0, 0, 1, 0, 0, 1],
+    [1, 0, 1, 1, 1, 0, 1],
+    [1, 0, 0, 0, 0, 0, 1],
+    [1, 1, 1, 1, 1, 1, 1]
+  ],
+  "spawn": { "x": 1, "y": 1, "dir": "abajo" },
+  "comandos_permitidos": ["moverArriba", "moverAbajo", "moverIzquierda", "moverDerecha", "avanzar", "girarDerecha", "girarIzquierda"],
+  "bloques_disponibles": ["moverArriba", "moverAbajo", "moverIzquierda", "moverDerecha", "avanzar", "girarDerecha", "girarIzquierda"],
+  "codigo_inicial": {
+    "javascript": "// Guía al héroe por el camino hasta la estrella\n// Usa moverAbajo, moverDerecha, etc.\nheroe.moverAbajo();\n",
+    "python": "# Guía al héroe por el camino hasta la estrella\nheroe.moverAbajo()\n"
+  },
+  "narracion": {
+    "intro": "¡Bienvenido al camino largo! Sigue el camino azul hasta la estrella. Usa los bloques de mover (Arriba, Abajo, Izquierda, Derecha) para guiar al héroe paso a paso.",
+    "exito": "¡Perfecto! Navegaste todo el camino. ¡Cada vez programas mejor!"
+  },
+  "objetivos": [
+    { "id": "salida", "tipo": "alcanzar_celda", "x": 5, "y": 3, "obligatorio": true }
+  ],
+  "criterios_estrella": {
+    "1": { "objetivos": ["salida"] },
+    "2": { "objetivos": ["salida"], "max_instrucciones": 9 },
+    "3": { "objetivos": ["salida"], "max_instrucciones": 6 }
+  },
+  "pistas": [
+    { "texto": "Mira el camino azul: primero baja, luego ve a la derecha hasta la estrella." },
+    { "texto": "El camino es: abajo, abajo, derecha, derecha, derecha, derecha." },
+    { "texto": "Usa 2 bloques 'mover Abajo' y luego 4 bloques 'mover Derecha'." }
+  ],
+  "recompensa": { "monedas": 15, "gemas": 1 },
+  "tope_ejecucion": 50000
+}

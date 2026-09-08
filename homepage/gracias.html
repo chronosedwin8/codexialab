@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>¡Gracias por tu compra! — Codexia</title>
+  <meta name="robots" content="noindex, nofollow" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='80' font-size='80'>🚀</text></svg>" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" /><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="css/styles.css" />
+  <style>
+    .codebox{background:rgba(0,0,0,.3);border:1px dashed var(--border);border-radius:12px;padding:.9rem 1.1rem;display:flex;align-items:center;justify-content:space-between;gap:1rem;margin:.6rem 0}
+    .codebox code{font-family:'Space Grotesk',sans-serif;font-size:1.15rem;color:var(--gold);letter-spacing:1px}
+    .copy{cursor:pointer;border:none;background:var(--primary);color:#fff;border-radius:10px;padding:.5rem .8rem;font-family:inherit;font-weight:600}
+  </style>
+</head>
+<body>
+  <div class="bg-fx"></div><div class="bg-grid"></div>
+  <main>
+    <section class="section-pad"><div class="container" style="max-width:640px;text-align:center">
+      <div style="font-size:4rem">🎉</div>
+      <span class="eyebrow">Pago aprobado</span>
+      <h1 class="h-xl">¡Bienvenid@ a <span class="grad-text">Codexia</span>!</h1>
+      <p class="lead" id="sub">Tu licencia quedó activa por 1 año. Ya puedes entrar y empezar la aventura.</p>
+
+      <div class="glass" id="escBox" style="padding:1.5rem;text-align:left;display:none;margin:1.6rem 0">
+        <p class="sec-title" style="font-family:'Space Grotesk',sans-serif;font-size:1.05rem;margin:0 0 .8rem">🏫 Datos de tu institución</p>
+        <p class="muted" style="font-size:.9rem;margin:0 0 .6rem">Comparte estos códigos para inscribir a tus estudiantes y grupos. Guárdalos en un lugar seguro.</p>
+        <label style="font-size:.8rem;color:var(--muted)">Código de institución</label>
+        <div class="codebox"><code id="codInst">—</code><button class="copy" data-target="codInst">Copiar</button></div>
+        <label style="font-size:.8rem;color:var(--muted)">Código del grupo principal (aula)</label>
+        <div class="codebox"><code id="codAula">—</code><button class="copy" data-target="codAula">Copiar</button></div>
+      </div>
+
+      <div style="display:flex;gap:.8rem;justify-content:center;flex-wrap:wrap;margin-top:1.6rem">
+        <a class="btn btn-primary" href="/app">🚀 Entrar a Codexia</a>
+        <a class="btn btn-ghost" href="index.html">Volver al inicio</a>
+      </div>
+      <p class="muted" style="font-size:.85rem;margin-top:1.4rem">Enviamos también los detalles a tu correo. ¿Dudas? ✉️ soporte@codexialab.com</p>
+    </div></section>
+  </main>
+  <script>
+    (function () {
+      var p = new URLSearchParams(location.search);
+      if (p.get('plan') === 'prueba') {
+        document.getElementById('sub').textContent = 'Tu prueba quedó activa por 24 horas. ¡Aprovéchala al máximo y explora todo Codexia!';
+      }
+      if (p.get('plan') === 'escuela') {
+        document.getElementById('escBox').style.display = 'block';
+        document.getElementById('sub').textContent = 'Tu licencia Escuela quedó activa por 1 año. Usa los códigos de abajo para inscribir a tu institución.';
+        if (p.get('inst')) document.getElementById('codInst').textContent = p.get('inst');
+        if (p.get('aula')) document.getElementById('codAula').textContent = p.get('aula');
+      }
+      document.querySelectorAll('.copy').forEach(function (b) {
+        b.addEventListener('click', function () {
+          var t = document.getElementById(b.dataset.target).textContent;
+          navigator.clipboard && navigator.clipboard.writeText(t);
+          b.textContent = '¡Copiado!';
+          setTimeout(function () { b.textContent = 'Copiar'; }, 1500);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>

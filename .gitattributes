@@ -1,0 +1,17 @@
+# Normaliza finales de línea. Los scripts de shell DEBEN quedar en LF
+# (si quedan en CRLF, el contenedor Linux no ejecuta el entrypoint).
+* text=auto eol=lf
+*.sh text eol=lf
+docker-entrypoint.sh text eol=lf
+
+# Binarios: no tocar finales de línea
+*.mp3 binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
