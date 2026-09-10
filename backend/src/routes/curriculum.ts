@@ -251,7 +251,9 @@ export const curriculumRoutes: FastifyPluginAsync = async (fastify: FastifyInsta
     const level = await prisma.level.findUnique({
       where: { id: parseInt(levelId, 10) },
       include: {
-        mundo: { select: { id: true, nombre: true, numeroOrden: true } },
+        // categoria y totalNiveles: el frontend arma con ellos la lección previa del
+        // tema y el progreso del mundo que muestra la celebración final.
+        mundo: { select: { id: true, nombre: true, numeroOrden: true, categoria: true, totalNiveles: true } },
         pistas: { orderBy: { orden: 'asc' } },
       },
     });

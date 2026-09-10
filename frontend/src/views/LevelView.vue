@@ -17,10 +17,25 @@
         </div>
       </div>
       <div class="level-stats">
+        <button v-if="hayExplicacion" class="btn-explicar" title="Ver la explicación de nuevo" @click="abrirExplicacion">
+          📚 Explicación
+        </button>
         <StarRating :stars="bestStars" />
         <div class="currency-mini">🪙 {{ authStore.user?.monedas ?? 0 }}</div>
       </div>
     </header>
+
+    <!-- Explicación previa: teoría del tema la primera vez, ficha del reto siempre -->
+    <LeccionPrevia
+      v-if="leccionVisible && slidesActuales.length"
+      :key="claveLeccion"
+      :slides="slidesActuales"
+      :titulo="tituloLeccion"
+      :kicker="kickerLeccion"
+      :color="colorLeccion"
+      :recordar-como="recordarLeccion"
+      @terminada="onLeccionTerminada"
+    />
 
     <!-- Actividad tipo QUIZ (lógica, informática, etc.) -->
     <QuizActivity
@@ -171,8 +186,9 @@
     <!-- Mascota guía -->
     <MascotaGuia :mensaje="mascotaMessage" :tipo="mascotaTipo" />
 
-    <!-- Logros desbloqueados (con items gratis) -->
-    <div v-if="nuevosLogros.length" class="logros-overlay" @click.self="nuevosLogros = []">
+    <!-- Logros desbloqueados. Durante la celebración se muestran DENTRO de ella
+         (antes este overlay la tapaba); este bloque queda para el resto de casos. -->
+    <div v-if="nuevosLogros.length && !showCelebration" class="logros-overlay" @click.self="nuevosLogros = []">
       <div class="logros-modal">
         <h2>🏆 ¡Logro{{ nuevosLogros.length > 1 ? 's' : '' }} desbloqueado{{ nuevosLogros.length > 1 ? 's' : '' }}!</h2>
         <div v-for="lg in nuevosLogros" :key="lg.id" :class="['logro-card', lg.rareza]">
@@ -197,6 +213,11 @@
       :stars="earnedStars"
       :monedas="earnedCoins"
       :gemas="earnedGems"
+      :mundo-nombre="mundoActual?.nombre ?? ''"
+      :nivel-actual="nivelOrden"
+      :total-niveles="mundoActual?.totalNiveles ?? 0"
+      :siguiente-tema="siguienteTema"
+      :logros="nuevosLogros"
       @next-level="goToNextLevel"
       @retry="retryLevel"
       @map="router.push('/mapa')"
@@ -226,6 +247,9 @@ const CodigoRetoActivity = defineAsyncComponent(() => import('@/components/Codig
 import StarRating from '@/components/StarRating.vue';
 import MascotaGuia from '@/components/MascotaGuia.vue';
 import CelebrationModal from '@/components/CelebrationModal.vue';
+import LeccionPrevia from '@/components/LeccionPrevia.vue';
+import { fichaNivel, leccionMundo, tieneLeccion, type Slide } from '@/data/lecciones';
+import { yaSeVio } from '@/composables/cinematicas';
 
 const route = useRoute();
 const router = useRouter();
@@ -263,6 +287,71 @@ const gameCanvas = ref<InstanceType<typeof GameCanvas> | null>(null);
 const mascotaMessage = ref('¡Hola! Soy Codi. Escribe tu código y presiona Ejecutar.');
 const mascotaTipo = ref<'normal' | 'pista' | 'celebracion' | 'error'>('normal');
 
+// ── Explicación previa (Programación MD / HL / Python) ──────────────────────
+// Pedagogía: la teoría es del TEMA (el mundo) y se ve una vez; la ficha es del
+// RETO y se muestra siempre. Así ningún nivel arranca sin explicación, pero
+// tampoco se repite la misma teoría diez veces seguidas.
+interface MundoNivel { id: number; nombre: string; numeroOrden: number; categoria: string; totalNiveles: number }
+const mundoActual = ref<MundoNivel | null>(null);
+const nivelOrden = ref(0);
+const leccionVisible = ref(false);
+const forzarTeoria = ref(false); // el botón 📚 siempre abre la teoría completa
+
+const hayExplicacion = computed(() => tieneLeccion(mundoActual.value?.categoria));
+
+const teoria = computed(() => {
+  const m = mundoActual.value;
+  return m ? leccionMundo(m.categoria, m.numeroOrden) : null;
+});
+
+const ficha = computed<readonly Slide[]>(() => {
+  if (!levelConfig.value || !hayExplicacion.value) return [];
+  return fichaNivel(levelConfig.value, mundoActual.value?.nombre ?? '');
+});
+
+// La primera visita al mundo trae teoría + ficha; las siguientes, solo la ficha.
+const slidesActuales = computed<readonly Slide[]>(() => {
+  const t = teoria.value?.slides ?? [];
+  if (forzarTeoria.value) return [...t, ...ficha.value];
+  return teoriaPendiente.value ? [...t, ...ficha.value] : ficha.value;
+});
+
+const teoriaPendiente = computed(() => !!teoria.value && !yaSeVio(`leccion-${teoria.value.clave}`));
+
+const tituloLeccion = computed(() => {
+  if (forzarTeoria.value || teoriaPendiente.value) return teoria.value?.titulo ?? levelConfig.value?.nombre ?? '';
+  return levelConfig.value?.nombre ?? '';
+});
+const kickerLeccion = computed(() =>
+  forzarTeoria.value || teoriaPendiente.value ? (teoria.value?.subtitulo ?? 'Antes de empezar') : 'Antes de empezar',
+);
+const colorLeccion = computed(() => teoria.value?.color ?? '#7C3AED');
+// Solo se recuerda cuando la teoría venía incluida: la ficha se ve en cada nivel.
+const recordarLeccion = computed(() =>
+  teoriaPendiente.value && teoria.value ? `leccion-${teoria.value.clave}` : null,
+);
+const claveLeccion = computed(() => `${nivelOrden.value}-${forzarTeoria.value ? 'teoria' : 'ficha'}`);
+
+// Qué tema viene después, para invitar a seguir desde la celebración.
+const siguienteTema = computed(() => {
+  const m = mundoActual.value;
+  if (!m || !m.totalNiveles || nivelOrden.value < m.totalNiveles) return '';
+  return leccionMundo(m.categoria, m.numeroOrden + 1)?.titulo ?? '';
+});
+
+function abrirExplicacion(): void {
+  forzarTeoria.value = true;
+  leccionVisible.value = true;
+}
+
+function onLeccionTerminada(): void {
+  leccionVisible.value = false;
+  forzarTeoria.value = false;
+  // La narración del nivel se guardaba hasta aquí para no pisar la voz de la lección.
+  const intro = levelConfig.value?.narracion?.intro;
+  if (intro) audio.narrate(intro, levelConfig.value?.narracion?.url_audio_intro);
+}
+
 const availableModalities = computed(() => {
   if (!levelConfig.value) return [];
   const all: Array<{ id: 'bloques' | 'bloques_texto' | 'texto'; label: string }> = [
@@ -280,6 +369,8 @@ async function loadLevel(levelId: number) {
   hintsUsed.value = 0;
   showCelebration.value = false;
   blocklyCode.value = '';
+  leccionVisible.value = false;
+  forzarTeoria.value = false;
 
   let level;
   try {
@@ -291,6 +382,8 @@ async function loadLevel(levelId: number) {
   }
   levelConfig.value = level.config as NivelConfig;
   bestStars.value = level.estrellasMejor ?? 0;
+  mundoActual.value = (level.mundo as MundoNivel) ?? null;
+  nivelOrden.value = level.numeroOrden ?? 0;
 
   // Modalidad preferida del usuario, pero solo si el nivel la permite; si no, la primera disponible.
   // (Evita que niveles solo-texto —p. ej. Programación HL— queden sin editor visible.)
@@ -306,7 +399,11 @@ async function loadLevel(levelId: number) {
   mascotaMessage.value = levelConfig.value.narracion?.intro ?? '¡Usa los comandos para llegar a la salida!';
   mascotaTipo.value = 'normal';
 
-  if (levelConfig.value.narracion?.intro) {
+  // Con explicación previa, la voz del nivel espera a que termine la lección para
+  // no hablar encima de ella (la dispara onLeccionTerminada).
+  if (hayExplicacion.value && slidesActuales.value.length) {
+    leccionVisible.value = true;
+  } else if (levelConfig.value.narracion?.intro) {
     audio.narrate(levelConfig.value.narracion.intro, levelConfig.value.narracion.url_audio_intro);
   }
 }
@@ -556,6 +653,20 @@ function goToNextLevel() {
 
 .level-stats { display: flex; align-items: center; gap: 0.75rem; }
 .currency-mini { color: #FCD34D; font-weight: 700; font-size: 0.9rem; }
+.btn-explicar {
+  background: rgba(139, 92, 246, 0.18);
+  color: #DDD6FE;
+  border: 1px solid rgba(139, 92, 246, 0.45);
+  border-radius: 12px;
+  padding: 0.4rem 0.8rem;
+  font-family: inherit;
+  font-size: 0.82rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.2s, transform 0.15s;
+}
+.btn-explicar:hover { background: rgba(139, 92, 246, 0.34); transform: translateY(-1px); }
 
 .level-layout {
   display: flex;
