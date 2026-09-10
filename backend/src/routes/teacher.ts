@@ -2,7 +2,7 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
-import { listarKlassen, obtenerKlassen, phidiasConfigurado } from '../lib/phidias.js';
+import { listarKlassen, obtenerKlassen, listarEstudiantesPlano, obtenerEstudiantesPorIds, phidiasConfigurado } from '../lib/phidias.js';
 
 const prisma = new PrismaClient();
 
@@ -528,6 +528,95 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
     return reply.send({ grupos, errores, password: passwordPlano });
   });
 
+  // Lista PLANA de todos los estudiantes matriculados (para armar grupos mixtos),
+  // ordenada por apellido. Filtro opcional `q` por apellido/nombre/curso/correo.
+  fastify.get('/phidias/estudiantes', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    if (!phidiasConfigurado()) return reply.code(503).send({ error: 'La conexión con Phidias no está configurada (PHIDIAS_TOKEN)' });
+    const { year, q } = request.query as { year?: string; q?: string };
+    try {
+      let estudiantes = await listarEstudiantesPlano(year ? parseInt(year, 10) : undefined);
+      const filtro = (q ?? '').trim().toLowerCase();
+      if (filtro) {
+        estudiantes = estudiantes.filter((e) =>
+          `${e.apellido} ${e.firstname} ${e.curso} ${e.klasse} ${e.email}`.toLowerCase().includes(filtro),
+        );
+      }
+      return reply.send({ estudiantes, total: estudiantes.length });
+    } catch (err: any) {
+      return reply.code(502).send({ error: `No se pudo consultar Phidias: ${err.message}` });
+    }
+  });
+
+  // Crea UN grupo (aula) mixto con estudiantes elegidos individualmente de cualquier Klasse.
+  fastify.post('/phidias/import-mixto', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    if (!phidiasConfigurado()) return reply.code(503).send({ error: 'La conexión con Phidias no está configurada (PHIDIAS_TOKEN)' });
+
+    const schema = z.object({
+      nombre: z.string().min(2).max(150),
+      phidias_ids: z.array(z.number()).min(1).max(500),
+      institucion_id: z.number().optional(),
+      year: z.number().optional(),
+      password: z.string().min(4).max(100).optional(),
+    });
+    const r = schema.safeParse(request.body);
+    if (!r.success) return reply.code(400).send({ error: 'Datos inválidos', details: r.error.flatten() });
+
+    let estudiantes;
+    try {
+      estudiantes = await obtenerEstudiantesPorIds(r.data.phidias_ids, r.data.year);
+    } catch (err: any) {
+      return reply.code(502).send({ error: `No se pudo consultar Phidias: ${err.message}` });
+    }
+    if (estudiantes.length === 0) return reply.code(404).send({ error: 'No se encontraron los estudiantes indicados' });
+
+    const passwordPlano = r.data.password ?? 'codexia123';
+    const hashComun = await bcrypt.hash(passwordPlano, 10);
+
+    // Aula (reutiliza si ya existe una con ese nombre para este docente).
+    let aula = await prisma.classroom.findFirst({ where: { docenteId: user.id, nombre: r.data.nombre, activa: true } });
+    if (!aula) {
+      aula = await prisma.classroom.create({
+        data: { nombre: r.data.nombre, codigoAcceso: generateClassCode(), docenteId: user.id, institucionId: r.data.institucion_id },
+      });
+    }
+
+    // Crear cuentas faltantes (un solo hash para el lote) e inscribir.
+    const emails = estudiantes.map((e) => e.email);
+    const existentes = await prisma.user.findMany({ where: { email: { in: emails } }, select: { id: true, email: true } });
+    const porEmail = new Map(existentes.map((u) => [u.email, u.id]));
+
+    const nuevos = estudiantes.filter((e) => !porEmail.has(e.email));
+    if (nuevos.length) {
+      await prisma.user.createMany({
+        data: nuevos.map((e) => ({
+          nombre: e.nombre, email: e.email, passwordHash: hashComun,
+          rol: 'estudiante' as const, bandaEdad: e.banda, institucionId: r.data.institucion_id,
+        })),
+        skipDuplicates: true,
+      });
+      const creados = await prisma.user.findMany({ where: { email: { in: nuevos.map((e) => e.email) } }, select: { id: true, email: true } });
+      for (const c of creados) porEmail.set(c.email, c.id);
+    }
+
+    const inscripciones = estudiantes
+      .map((e) => porEmail.get(e.email))
+      .filter((id): id is number => typeof id === 'number')
+      .map((estudianteId) => ({ estudianteId, aulaId: aula!.id }));
+    const { count: inscritos } = await prisma.enrollment.createMany({ data: inscripciones, skipDuplicates: true });
+
+    return reply.send({
+      aula: { id: aula.id, nombre: aula.nombre, codigoAcceso: aula.codigoAcceso },
+      totalSeleccionados: estudiantes.length,
+      nuevos: nuevos.length,
+      inscritos,
+      password: passwordPlano,
+    });
+  });
+
   // ===================== SEDES (instituciones) =====================
   fastify.get('/sedes', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const user = request.user as { rol: string };
@@ -821,6 +910,34 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
     const ids = ins.map((e) => e.estudianteId);
     if (ids.length) await prisma.user.updateMany({ where: { id: { in: ids }, rol: 'estudiante' }, data: { activo: !bloquear } });
     return reply.send({ ok: true, afectados: ids.length, bloqueado: !!bloquear });
+  });
+
+  // Cambio MASIVO de contraseña a todos los estudiantes de un grupo (docente dueño o admin).
+  fastify.post('/classrooms/:id/reset-passwords', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const { id } = request.params as { id: string };
+    const aulaId = parseInt(id, 10);
+
+    // El docente solo puede sobre sus propias aulas; el admin, sobre cualquiera.
+    const classroom = await prisma.classroom.findFirst({ where: { id: aulaId, docenteId: user.id } });
+    if (!classroom && user.rol !== 'admin') return reply.code(403).send({ error: 'Sin acceso a esta aula' });
+
+    const schema = z.object({ password: z.string().min(4).max(100).optional() });
+    const r = schema.safeParse(request.body ?? {});
+    if (!r.success) return reply.code(400).send({ error: 'Datos inválidos', details: r.error.flatten() });
+
+    const passwordPlano = r.data.password?.trim() || 'codexia123';
+    const hashComun = await bcrypt.hash(passwordPlano, 10); // un solo hash para todo el lote
+
+    const ins = await prisma.enrollment.findMany({ where: { aulaId }, select: { estudianteId: true } });
+    const ids = ins.map((e) => e.estudianteId);
+    let afectados = 0;
+    if (ids.length) {
+      const res = await prisma.user.updateMany({ where: { id: { in: ids }, rol: 'estudiante' }, data: { passwordHash: hashComun } });
+      afectados = res.count;
+    }
+    return reply.send({ ok: true, afectados, password: passwordPlano });
   });
 
   // ===================== ASIGNACIÓN MÚLTIPLE (fácil: mundos, materia completa o niveles) =====================

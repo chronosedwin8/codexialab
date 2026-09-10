@@ -8,7 +8,7 @@
         </div>
 
         <div class="modal-content">
-          <div class="success-icon">🎉</div>
+          <div class="success-fuzz"><FuzzAvatar :tamano="120" expresion="celebrando" color="#7C3AED" :mirar="false" /></div>
           <h2 class="success-title">¡Lo lograste!</h2>
 
           <!-- Estrellas animadas -->
@@ -57,6 +57,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue';
+import FuzzAvatar from './FuzzAvatar.vue';
 
 const props = defineProps<{
   stars: number;
@@ -160,6 +161,7 @@ function getConfettiStyle(i: number): Record<string, string> {
 }
 
 .success-icon { font-size: 3.5rem; animation: bounceIcon 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 0.2s both; }
+.success-fuzz { display: flex; justify-content: center; margin-bottom: 0.3rem; animation: bounceIcon 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) 0.1s both; }
 
 @keyframes bounceIcon {
   from { transform: scale(0) rotate(-20deg); opacity: 0; }

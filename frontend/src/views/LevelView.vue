@@ -260,7 +260,7 @@ const earnedStars = ref(0);
 const earnedCoins = ref(0);
 const earnedGems = ref(0);
 const gameCanvas = ref<InstanceType<typeof GameCanvas> | null>(null);
-const mascotaMessage = ref('¡Hola! Soy Astro. Escribe tu código y presiona Ejecutar.');
+const mascotaMessage = ref('¡Hola! Soy Codi. Escribe tu código y presiona Ejecutar.');
 const mascotaTipo = ref<'normal' | 'pista' | 'celebracion' | 'error'>('normal');
 
 const availableModalities = computed(() => {

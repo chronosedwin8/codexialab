@@ -120,6 +120,15 @@
         </template>
       </aside>
     </div>
+
+    <!-- Historia narrada de entrada del mundo (se ve una vez) -->
+    <Cinematica
+      v-if="cineVisible"
+      :beats="cineBeats"
+      :color="cineColor"
+      :recordar-como="cineClave"
+      @terminada="onHistoriaTerminada"
+    />
   </div>
 </template>
 
@@ -129,6 +138,16 @@ import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { useCurriculumStore } from '@/stores/curriculum';
 import MapaMundo from '@/components/MapaMundo.vue';
+import Cinematica from '@/components/Cinematica.vue';
+import { historiaMundo, type BeatHistoria } from '@/data/historias';
+import { yaSeVio, claveEntrada } from '@/composables/cinematicas';
+
+// Estado de la cinemática de entrada de mundo.
+const cineVisible = ref(false);
+const cineBeats = ref<readonly BeatHistoria[]>([]);
+const cineColor = ref('#7C3AED');
+const cineClave = ref<string | null>(null);
+const cinePendiente = ref<number | null>(null);
 import AvatarConfig from '@/components/AvatarConfig.vue';
 import { curriculumApi, teacherApi } from '@/api/index';
 import { MATERIAS, MEGA_CATEGORIAS } from '@/data/materias';
@@ -221,7 +240,27 @@ onMounted(async () => {
 });
 
 function navigateToLevel(levelId: number) {
+  // Al ENTRAR a un mundo por primera vez, se cuenta su historia narrada (una vez).
+  const world = curriculumStore.worlds.find((w: any) => (w.niveles ?? []).some((n: any) => n.id === levelId));
+  if (world && !yaSeVio(claveEntrada(world.id))) {
+    const h = historiaMundo(world);
+    if (h.beats.length) {
+      cineBeats.value = h.beats as any;
+      cineColor.value = h.color;
+      cineClave.value = claveEntrada(world.id);
+      cinePendiente.value = levelId;
+      cineVisible.value = true;
+      return;
+    }
+  }
   router.push(`/nivel/${levelId}`);
+}
+
+function onHistoriaTerminada() {
+  cineVisible.value = false;
+  const destino = cinePendiente.value;
+  cinePendiente.value = null;
+  if (destino != null) router.push(`/nivel/${destino}`);
 }
 
 function handleWorldSelect(world: any) {

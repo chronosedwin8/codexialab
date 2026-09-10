@@ -7,32 +7,30 @@
     </Transition>
 
     <div class="mascota-sprite" :class="[tipo, { talking: isTalking }]" @click="toggleMessage">
-      <div class="mascota-body">
-        <div class="mascota-face">
-          <div class="eyes">
-            <div class="eye left"></div>
-            <div class="eye right"></div>
-          </div>
-          <div class="mouth" :class="{ open: isTalking }"></div>
-        </div>
-        <div class="mascota-antenna"></div>
-        <div class="mascota-arms">
-          <div class="arm left"></div>
-          <div class="arm right"></div>
-        </div>
-      </div>
-      <div class="mascota-label">Astro</div>
+      <FuzzAvatar :expresion="expresion" :tamano="76" color="#7C3AED" :mirar="false" />
+      <div class="mascota-label">Codi</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
+import FuzzAvatar from './FuzzAvatar.vue';
 
 const props = defineProps<{
   mensaje: string;
   tipo?: 'normal' | 'pista' | 'celebracion' | 'error';
 }>();
+
+// El tipo de mensaje se refleja en la expresión del personaje.
+const expresion = computed(() => {
+  switch (props.tipo) {
+    case 'celebracion': return 'celebrando';
+    case 'error': return 'confundido';
+    case 'pista': return 'confundido';
+    default: return 'normal';
+  }
+});
 
 const isTalking = ref(false);
 let talkTimer: ReturnType<typeof setTimeout> | null = null;

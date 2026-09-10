@@ -73,15 +73,57 @@ function bandaDesdeCurso(curso: string): 'exploradores' | 'aventureros' | 'heroe
  * Se usa tanto para CONTAR (listarKlassen) como para IMPORTAR (obtenerKlassen),
  * así el número que ve el docente coincide exactamente con lo que se crea.
  */
-function normalizarEstudiantes(sec: PhidiasSection): Array<{ phidiasId: number; nombre: string; email: string }> {
+interface EstudianteNorm { phidiasId: number; nombre: string; apellido: string; firstname: string; email: string }
+
+function normalizarEstudiantes(sec: PhidiasSection): EstudianteNorm[] {
   return (sec.students ?? [])
     .filter((s) => s.enrollment?.status !== 'retirado')
     .map((s) => {
-      const nombre = `${s.firstname ?? ''} ${s.lastname ?? ''}`.replace(/\s+/g, ' ').trim();
+      const firstname = (s.firstname ?? '').replace(/\s+/g, ' ').trim();
+      const apellido = (s.lastname ?? '').replace(/\s+/g, ' ').trim();
+      const nombre = `${firstname} ${apellido}`.replace(/\s+/g, ' ').trim();
       const email = (s.email ?? '').trim().toLowerCase() || `phidias${s.id}@codexia.edu`;
-      return { phidiasId: s.id, nombre, email };
+      return { phidiasId: s.id, nombre, apellido, firstname, email };
     })
     .filter((s) => s.nombre.length > 0);
+}
+
+// Estudiante en lista plana (para armar grupos mixtos eligiendo individuos).
+export interface EstudiantePlano extends EstudianteNorm {
+  curso: string;
+  nivel: string;
+  klasse: string;
+  banda: 'exploradores' | 'aventureros' | 'heroes';
+}
+
+/** TODOS los estudiantes activos, aplanados y ORDENADOS por apellido (luego nombre). */
+export async function listarEstudiantesPlano(year?: number): Promise<EstudiantePlano[]> {
+  const data = await consolidate(year);
+  const out: EstudiantePlano[] = [];
+  const vistos = new Set<number>();
+  for (const nivel of data) {
+    for (const curso of nivel.courses ?? []) {
+      for (const sec of curso.sections ?? []) {
+        for (const e of normalizarEstudiantes(sec)) {
+          if (vistos.has(e.phidiasId)) continue; // un estudiante podría repetirse: se toma una vez
+          vistos.add(e.phidiasId);
+          out.push({ ...e, curso: curso.name, nivel: nivel.name, klasse: sec.name, banda: bandaDesdeCurso(curso.name) });
+        }
+      }
+    }
+  }
+  out.sort(
+    (a, b) =>
+      a.apellido.localeCompare(b.apellido, 'es', { sensitivity: 'base' }) ||
+      a.firstname.localeCompare(b.firstname, 'es', { sensitivity: 'base' }),
+  );
+  return out;
+}
+
+/** Estudiantes concretos por sus ids de Phidias (para el grupo mixto). */
+export async function obtenerEstudiantesPorIds(ids: number[], year?: number): Promise<EstudiantePlano[]> {
+  const set = new Set(ids);
+  return (await listarEstudiantesPlano(year)).filter((e) => set.has(e.phidiasId));
 }
 
 /** Árbol Nivel → Curso → Klasse (sección) con el número de estudiantes de cada una. */

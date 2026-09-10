@@ -166,6 +166,10 @@ export const teacherApi = {
   getPhidiasKlassen: async (year?: number) => (await api.get('/teacher/phidias/klassen', { params: { year } })).data,
   importPhidias: async (payload: { seccion_ids: number[]; institucion_id?: number; year?: number; password?: string }) =>
     (await api.post('/teacher/phidias/import', payload)).data,
+  // Grupos mixtos: lista plana de estudiantes (ordenada por apellido) + creación por selección individual
+  getPhidiasEstudiantes: async (q?: string, year?: number) => (await api.get('/teacher/phidias/estudiantes', { params: { q, year } })).data,
+  importPhidiasMixto: async (payload: { nombre: string; phidias_ids: number[]; institucion_id?: number; year?: number; password?: string }) =>
+    (await api.post('/teacher/phidias/import-mixto', payload)).data,
   // Sedes
   getSedes: async () => (await api.get('/teacher/sedes')).data,
   createSede: async (payload: { nombre: string; ciudad?: string }) => (await api.post('/teacher/sedes', payload)).data,
@@ -189,6 +193,8 @@ export const teacherApi = {
   // Bloqueo de acceso
   blockStudent: async (id: number, bloquear: boolean) => (await api.post(`/teacher/students/${id}/bloqueo`, { bloquear })).data,
   blockClassroom: async (id: number, bloquear: boolean) => (await api.post(`/teacher/classrooms/${id}/bloqueo`, { bloquear })).data,
+  // Cambio masivo de contraseña a todos los estudiantes de un grupo
+  resetGroupPasswords: async (id: number, password?: string) => (await api.post(`/teacher/classrooms/${id}/reset-passwords`, { password })).data,
   // Asignación múltiple (mundos / materia completa / niveles)
   assignMulti: async (payload: { aula_id?: number; estudiante_id?: number; categoria?: string; mundo_ids?: number[]; nivel_ids?: number[]; titulo?: string; fecha_limite?: string }) => (await api.post('/teacher/assign-multi', payload)).data,
   // Estadísticas avanzadas con filtros (grupo/materia/mundo)

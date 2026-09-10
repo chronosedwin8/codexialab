@@ -74,6 +74,7 @@
           <div class="filter-row">
             <button class="btn-block" @click="bloquearGrupo(true)">🔒 Bloquear grupo</button>
             <button class="btn-ok-sm" @click="bloquearGrupo(false)">🔓 Desbloquear</button>
+            <button class="btn-pass" @click="abrirResetPass">🔑 Cambiar contraseña</button>
             <select v-model="filterWorld" class="filter-select" title="Filtra la tabla de progreso (no asigna)">
               <option value="">Filtrar: todos los mundos</option>
               <option v-for="w in worlds" :key="w.id" :value="w.id">Mundo {{ w.numero_orden }}: {{ w.nombre }}</option>
@@ -689,24 +690,48 @@
       </div>
     </div>
 
+    <!-- Modal cambio masivo de contraseña del grupo -->
+    <div v-if="showResetPass" class="modal-overlay" @click.self="showResetPass = false">
+      <div class="modal">
+        <button class="modal-close" aria-label="Cerrar" @click="showResetPass = false">✕</button>
+        <h3>🔑 Cambiar contraseña del grupo</h3>
+        <p class="modal-help">Se aplicará a <b>TODOS</b> los estudiantes de <b>{{ selectedClassroom?.nombre }}</b>. Déjala vacía para usar <code>codexia123</code>.</p>
+        <div class="form-group" v-if="!resetPassResult">
+          <label>Nueva contraseña</label>
+          <input v-model="resetPassValue" type="text" placeholder="codexia123 (por defecto)" @keyup.enter="ejecutarResetPass" />
+        </div>
+        <p v-if="resetPassResult" class="bulk-result">✅ {{ resetPassResult.afectados }} estudiante(s) actualizados. Nueva contraseña: <b><code>{{ resetPassResult.password }}</code></b><br><span class="muted-txt">Compártela con los estudiantes.</span></p>
+        <p v-if="resetPassError" class="form-error">{{ resetPassError }}</p>
+        <div class="modal-actions">
+          <button class="btn-secondary" @click="showResetPass = false">{{ resetPassResult ? 'Cerrar' : 'Cancelar' }}</button>
+          <button v-if="!resetPassResult" class="btn-primary" :disabled="resetPassLoading" @click="ejecutarResetPass">
+            {{ resetPassLoading ? 'Aplicando…' : 'Cambiar a todo el grupo' }}
+          </button>
+        </div>
+      </div>
+    </div>
+
     <!-- Modal importar Klassen desde Phidias -->
     <div v-if="showPhidiasModal" class="modal-overlay" @click.self="cerrarPhidias">
       <div class="modal modal-wide">
         <button class="modal-close" aria-label="Cerrar" @click="cerrarPhidias">✕</button>
         <h3>🔗 Importar grupos desde Phidias</h3>
-        <p class="modal-help">
-          Selecciona las Klassen. Se creará un grupo por cada una con sus estudiantes matriculados
-          (nombre completo y correo institucional). La contraseña de todos será <code>{{ phidiasPassword }}</code>.
-        </p>
+
+        <!-- Selector de modo -->
+        <div class="phidias-modos">
+          <button :class="['pm-tab', { on: phidiasModo === 'klasse' }]" @click="cambiarModoPhidias('klasse')">🏫 Por Klasse</button>
+          <button :class="['pm-tab', { on: phidiasModo === 'mixto' }]" @click="cambiarModoPhidias('mixto')">🧑‍🤝‍🧑 Grupo mixto</button>
+        </div>
 
         <div v-if="phidiasCargando" class="empty-state">Consultando Phidias…</div>
         <div v-else-if="phidiasError" class="form-error">{{ phidiasError }}</div>
 
-        <template v-else>
+        <!-- MODO POR KLASSE (una Klasse = un grupo) -->
+        <template v-else-if="phidiasModo === 'klasse'">
+          <p class="modal-help">Selecciona las Klassen. Se crea un grupo por cada una con sus estudiantes. Contraseña: <code>{{ phidiasPassword }}</code>.</p>
           <div class="form-group">
             <input v-model="phidiasBusqueda" type="text" placeholder="Buscar Klasse (ej: K4, KINDER…)" />
           </div>
-
           <div class="phidias-tree">
             <div v-for="nivel in phidiasFiltrado" :key="nivel.id" class="phidias-nivel">
               <p class="phidias-nivel-nombre">{{ nivel.nombre }}</p>
@@ -726,7 +751,6 @@
             </div>
             <div v-if="phidiasFiltrado.length === 0" class="empty-state">Sin resultados.</div>
           </div>
-
           <div class="form-group" v-if="sedes.length">
             <label>Sede <span class="opt">(opcional)</span></label>
             <select v-model="phidiasSede" class="filter-select">
@@ -734,17 +758,39 @@
               <option v-for="s in sedes" :key="s.id" :value="s.id">{{ s.nombre }}</option>
             </select>
           </div>
+          <div class="modal-actions">
+            <span class="phidias-resumen" v-if="phidiasSeleccion.length">{{ phidiasSeleccion.length }} grupo(s) · {{ phidiasTotalEstudiantes }} estudiantes</span>
+            <button class="btn-secondary" @click="cerrarPhidias">Cancelar</button>
+            <button class="btn-primary" :disabled="!phidiasSeleccion.length || phidiasImportando" @click="importarPhidias">{{ phidiasImportando ? 'Importando…' : 'Crear grupos' }}</button>
+          </div>
         </template>
 
-        <div class="modal-actions">
-          <span class="phidias-resumen" v-if="phidiasSeleccion.length">
-            {{ phidiasSeleccion.length }} grupo(s) · {{ phidiasTotalEstudiantes }} estudiantes
-          </span>
-          <button class="btn-secondary" @click="cerrarPhidias">Cancelar</button>
-          <button class="btn-primary" :disabled="!phidiasSeleccion.length || phidiasImportando" @click="importarPhidias">
-            {{ phidiasImportando ? 'Importando…' : 'Crear grupos' }}
-          </button>
-        </div>
+        <!-- MODO MIXTO (elige estudiantes individuales de cualquier Klasse) -->
+        <template v-else>
+          <p class="modal-help">Elige estudiantes individuales (de cualquier Klasse) para armar UN grupo. Ordenados por apellido. Contraseña: <code>{{ phidiasPassword }}</code>.</p>
+          <div class="form-group">
+            <label>Nombre del grupo</label>
+            <input v-model="phidiasMixtoNombre" type="text" placeholder="Ej: Club de Programación 5°-6°" />
+          </div>
+          <div class="form-group">
+            <input v-model="phidiasMixtoBusqueda" type="text" placeholder="Buscar por apellido, nombre o curso…" />
+          </div>
+          <div class="phidias-lista">
+            <label v-for="e in phidiasMixtoFiltrado" :key="e.phidiasId" class="phidias-est">
+              <input type="checkbox" :value="e.phidiasId" v-model="phidiasMixtoSel" />
+              <span class="est-nombre"><b>{{ e.apellido }}</b>, {{ e.firstname }}</span>
+              <span class="est-curso">{{ e.curso }} · {{ e.klasse }}</span>
+            </label>
+            <div v-if="!phidiasMixtoFiltrado.length" class="empty-state">Sin estudiantes.</div>
+          </div>
+          <div class="modal-actions">
+            <span class="phidias-resumen" v-if="phidiasMixtoSel.length">{{ phidiasMixtoSel.length }} estudiante(s) seleccionados</span>
+            <button class="btn-secondary" @click="cerrarPhidias">Cancelar</button>
+            <button class="btn-primary" :disabled="!phidiasMixtoSel.length || !phidiasMixtoNombre.trim() || phidiasImportando" @click="importarPhidiasMixto">
+              {{ phidiasImportando ? 'Creando…' : 'Crear grupo mixto' }}
+            </button>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -928,6 +974,32 @@ async function bloquearGrupo(bloquear: boolean) {
   if (!confirm(bloquear ? '¿Bloquear el acceso a TODO el grupo?' : '¿Desbloquear a todo el grupo?')) return;
   const r = await teacherApi.blockClassroom(selectedClassroom.value.id, bloquear);
   alert(`${bloquear ? '🔒 Grupo bloqueado' : '🔓 Grupo desbloqueado'} (${r.afectados} estudiantes).`);
+}
+
+// Cambio masivo de contraseña del grupo
+const showResetPass = ref(false);
+const resetPassValue = ref('');
+const resetPassLoading = ref(false);
+const resetPassError = ref('');
+const resetPassResult = ref<any>(null);
+function abrirResetPass() {
+  if (!selectedClassroom.value) return;
+  resetPassValue.value = '';
+  resetPassResult.value = null;
+  resetPassError.value = '';
+  showResetPass.value = true;
+}
+async function ejecutarResetPass() {
+  if (!selectedClassroom.value || resetPassLoading.value) return;
+  resetPassLoading.value = true;
+  resetPassError.value = '';
+  try {
+    resetPassResult.value = await teacherApi.resetGroupPasswords(selectedClassroom.value.id, resetPassValue.value.trim() || undefined);
+  } catch (e: any) {
+    resetPassError.value = e?.error ?? 'No se pudo cambiar la contraseña';
+  } finally {
+    resetPassLoading.value = false;
+  }
 }
 
 // Estadísticas avanzadas
@@ -1332,6 +1404,58 @@ const phidiasError = ref('');
 const phidiasResultado = ref<any>(null);
 const phidiasPassword = 'codexia123';
 
+// Modo del modal: 'klasse' (una Klasse = un grupo) o 'mixto' (elegir estudiantes individuales).
+const phidiasModo = ref<'klasse' | 'mixto'>('klasse');
+const phidiasEstudiantes = ref<any[]>([]);
+const phidiasMixtoNombre = ref('');
+const phidiasMixtoBusqueda = ref('');
+const phidiasMixtoSel = ref<number[]>([]);
+
+const phidiasMixtoFiltrado = computed(() => {
+  const q = phidiasMixtoBusqueda.value.trim().toLowerCase();
+  const lista = phidiasEstudiantes.value;
+  if (!q) return lista;
+  return lista.filter((e: any) => `${e.apellido} ${e.firstname} ${e.curso} ${e.klasse}`.toLowerCase().includes(q));
+});
+
+async function cambiarModoPhidias(modo: 'klasse' | 'mixto') {
+  phidiasModo.value = modo;
+  phidiasError.value = '';
+  if (modo === 'mixto' && phidiasEstudiantes.value.length === 0) {
+    phidiasCargando.value = true;
+    try {
+      phidiasEstudiantes.value = (await teacherApi.getPhidiasEstudiantes()).estudiantes;
+    } catch (e: any) {
+      phidiasError.value = e?.error ?? 'No se pudieron cargar los estudiantes de Phidias';
+    } finally {
+      phidiasCargando.value = false;
+    }
+  }
+}
+
+async function importarPhidiasMixto() {
+  if (!phidiasMixtoSel.value.length || !phidiasMixtoNombre.value.trim() || phidiasImportando.value) return;
+  phidiasImportando.value = true;
+  phidiasError.value = '';
+  try {
+    const data = await teacherApi.importPhidiasMixto({
+      nombre: phidiasMixtoNombre.value.trim(),
+      phidias_ids: phidiasMixtoSel.value,
+      institucion_id: phidiasSede.value,
+    });
+    classrooms.value = (await teacherApi.getClassrooms()).classrooms;
+    const nueva = classrooms.value.find((c) => c.id === data.aula?.id);
+    if (nueva) await selectClassroom(nueva);
+    cerrarPhidias();
+    // Reutiliza el modal de resultado mostrando el grupo mixto creado.
+    phidiasResultado.value = { grupos: [{ aula_id: data.aula.id, nombre: data.aula.nombre, codigoAcceso: data.aula.codigoAcceso, totalEstudiantes: data.totalSeleccionados, nuevos: data.nuevos, inscritos: data.inscritos }], errores: [], password: data.password };
+  } catch (e: any) {
+    phidiasError.value = e?.error ?? 'No se pudo crear el grupo mixto';
+  } finally {
+    phidiasImportando.value = false;
+  }
+}
+
 const phidiasFiltrado = computed(() => {
   const q = phidiasBusqueda.value.trim().toLowerCase();
   if (!q) return phidiasNiveles.value;
@@ -1375,8 +1499,12 @@ function toggleCurso(curso: any) {
 async function abrirPhidias() {
   showPhidiasModal.value = true;
   phidiasError.value = '';
+  phidiasModo.value = 'klasse';
   phidiasSeleccion.value = [];
   phidiasBusqueda.value = '';
+  phidiasMixtoSel.value = [];
+  phidiasMixtoNombre.value = '';
+  phidiasMixtoBusqueda.value = '';
   if (sedes.value.length === 0) await loadSedes().catch(() => {});
   if (phidiasNiveles.value.length) return;
   phidiasCargando.value = true;
@@ -1392,6 +1520,8 @@ async function abrirPhidias() {
 function cerrarPhidias() {
   showPhidiasModal.value = false;
   phidiasSeleccion.value = [];
+  phidiasMixtoSel.value = [];
+  phidiasMixtoNombre.value = '';
 }
 
 async function importarPhidias() {
@@ -1892,6 +2022,8 @@ table.matriz thead th.col-total { z-index: 4; }
 .fila-bloqueada td { opacity: 0.55; }
 .panel-hint { color: #64748B; font-size: 0.85rem; margin: 0 0 0.9rem; background: #F1F5F9; padding: 0.5rem 0.8rem; border-radius: 8px; border-left: 3px solid #8B5CF6; }
 .btn-block { background: #FEE2E2; color: #B91C1C; border: 1px solid #FCA5A5; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+.btn-pass { background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+.btn-pass:hover { background: #FDE68A; }
 .btn-ok-sm { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
 .stat-filtros { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .stat-filtros .filter-select { font-size: 0.9rem; padding: 0.5rem 0.8rem; }
@@ -1921,6 +2053,14 @@ table.matriz thead th.col-total { z-index: 4; }
 .phidias-klasse-nombre { font-size: 0.84rem; font-weight: 600; color: #111827; min-width: 60px; }
 .phidias-klasse-meta { font-size: 0.74rem; color: #9CA3AF; }
 .phidias-resumen { font-size: 0.78rem; color: #6B7280; margin-right: auto; }
+.phidias-modos { display: flex; gap: 0.4rem; margin-bottom: 0.7rem; }
+.pm-tab { flex: 1; padding: 0.5rem; border: 1px solid #C7D2FE; background: #EEF2FF; color: #4338CA; border-radius: 10px; font-weight: 700; cursor: pointer; font-size: 0.88rem; }
+.pm-tab.on { background: #4338CA; color: #fff; border-color: #4338CA; }
+.phidias-lista { max-height: 340px; overflow-y: auto; border: 1px solid #E2E8F0; border-radius: 10px; padding: 0.3rem 0.5rem; background: #F8FAFC; }
+.phidias-est { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.6rem; padding: 0.35rem 0.4rem; border-radius: 8px; cursor: pointer; border-bottom: 1px solid #F1F5F9; }
+.phidias-est:hover { background: #F5F3FF; }
+.est-nombre { font-size: 0.85rem; color: #111827; }
+.est-curso { font-size: 0.72rem; color: #9CA3AF; white-space: nowrap; }
 
 /* Progreso de asignación */
 .prog-mini { display: inline-block; width: 80px; height: 8px; background: #E2E8F0; border-radius: 4px; overflow: hidden; vertical-align: middle; }
