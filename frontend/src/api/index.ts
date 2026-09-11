@@ -30,6 +30,19 @@ api.interceptors.response.use(
   }
 );
 
+/**
+ * Mensaje de error legible de una llamada a la API.
+ * El interceptor de arriba rechaza con `error.response.data`, NO con el error de
+ * axios. Por eso leer `e.response.data.error` siempre daba undefined y la
+ * pantalla mostraba un genérico "No se pudo…" aunque el backend hubiera
+ * explicado el motivo.
+ */
+export function mensajeError(e: unknown, porDefecto = 'No se pudo completar la acción'): string {
+  if (typeof e === 'string') return e;
+  const err = e as { error?: string; message?: string; response?: { data?: { error?: string } } };
+  return err?.error ?? err?.response?.data?.error ?? err?.message ?? porDefecto;
+}
+
 export const authApi = {
   login: async (email: string, password: string) => {
     const res = await api.post('/auth/login', { email, password });
@@ -146,7 +159,7 @@ export const teacherApi = {
     const res = await api.get('/teacher/classrooms');
     return res.data;
   },
-  createClassroom: async (payload: object) => {
+  createClassroom: async (payload: { nombre: string; institucion_id?: number }) => {
     const res = await api.post('/teacher/classrooms', payload);
     return res.data;
   },
@@ -176,9 +189,24 @@ export const teacherApi = {
   getPhidiasEstudiantes: async (q?: string, year?: number) => (await api.get('/teacher/phidias/estudiantes', { params: { q, year } })).data,
   importPhidiasMixto: async (payload: { nombre: string; phidias_ids: number[]; institucion_id?: number; year?: number; password?: string }) =>
     (await api.post('/teacher/phidias/import-mixto', payload)).data,
+  // Grupos: editar, eliminar y sacar estudiantes
+  updateClassroom: async (id: number, payload: { nombre?: string; institucion_id?: number | null }) =>
+    (await api.patch(`/teacher/classrooms/${id}`, payload)).data,
+  deleteClassroom: async (id: number) => (await api.delete(`/teacher/classrooms/${id}`)).data,
+  getClassroomDeleteImpact: async (id: number) => (await api.get(`/teacher/classrooms/${id}/impacto-borrado`)).data,
+  removeStudentFromClassroom: async (classroomId: number, studentId: number) =>
+    (await api.delete(`/teacher/classrooms/${classroomId}/students/${studentId}`)).data,
+  // Cuentas: eliminar definitivamente
+  getStudentDeleteImpact: async (id: number) => (await api.get(`/teacher/students/${id}/impacto-borrado`)).data,
+  deleteStudent: async (id: number) => (await api.delete(`/teacher/students/${id}`)).data,
+  deleteTeacher: async (id: number) => (await api.delete(`/teacher/teachers/${id}`)).data,
   // Sedes
   getSedes: async () => (await api.get('/teacher/sedes')).data,
   createSede: async (payload: { nombre: string; ciudad?: string }) => (await api.post('/teacher/sedes', payload)).data,
+  updateSede: async (id: number, payload: { nombre?: string; ciudad?: string }) =>
+    (await api.patch(`/teacher/sedes/${id}`, payload)).data,
+  deleteSede: async (id: number, forzar = false) =>
+    (await api.delete(`/teacher/sedes/${id}${forzar ? '?forzar=1' : ''}`)).data,
   // Estudiantes
   getAllStudents: async (q?: string) => (await api.get('/teacher/students', { params: { q } })).data,
   createStudent: async (payload: { nombre: string; email: string; password: string; banda_edad?: string; aula_id?: number }) =>

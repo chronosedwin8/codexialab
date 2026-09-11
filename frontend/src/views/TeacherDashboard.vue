@@ -51,7 +51,19 @@
       <main class="classroom-detail" v-if="selectedClassroom">
         <!-- Filtros -->
         <div class="detail-header">
-          <h2>{{ selectedClassroom.nombre }}</h2>
+          <div class="titulo-grupo">
+            <h2>{{ selectedClassroom.nombre }}</h2>
+            <span class="sede-chip" :title="selectedClassroom.institucion ? 'Sede del grupo' : 'Este grupo no está asignado a ninguna sede'">
+              🏢 {{ selectedClassroom.institucion?.nombre ?? 'Sin sede' }}
+            </span>
+            <span v-if="selectedClassroom.docente && !selectedClassroom.esMio" class="sede-chip otro-docente">
+              👩‍🏫 {{ selectedClassroom.docente.nombre }}
+            </span>
+            <template v-if="puedeAdministrar(selectedClassroom)">
+              <button class="btn-mini" title="Cambiar nombre o sede" @click="abrirEditarGrupo">✏️ Editar</button>
+              <button class="btn-mini peligro" title="Eliminar este grupo" @click="abrirBorrarGrupo">🗑️ Eliminar grupo</button>
+            </template>
+          </div>
           <div class="add-row">
             <span class="add-label">➕ Agregar estudiantes:</span>
             <button class="btn-add" @click="abrirNuevoEnGrupo">👤 Nuevo</button>
@@ -100,6 +112,7 @@
                 <th>Monedas</th>
                 <th>Racha</th>
                 <th>Transición</th>
+                <th v-if="puedeAdministrar(selectedClassroom)">Acciones</th>
               </tr>
             </thead>
             <tbody>
@@ -142,6 +155,14 @@
                       🧩 {{ bloquesPercent(student) }}% / 💻 {{ 100 - bloquesPercent(student) }}%
                     </span>
                   </div>
+                </td>
+                <td v-if="puedeAdministrar(selectedClassroom)" class="acciones-cell">
+                  <button class="btn-mini" title="Lo saca de este grupo. Conserva su cuenta y su progreso." @click="quitarDelGrupo(student)">
+                    ➖ Quitar
+                  </button>
+                  <button class="btn-mini peligro" title="Elimina la cuenta y TODO su progreso, para siempre." @click="abrirBorrarEstudiante(student)">
+                    🗑️
+                  </button>
                 </td>
               </tr>
             </tbody>
@@ -269,16 +290,34 @@
 
     <!-- ===================== SEDES ===================== -->
     <section v-show="activeTab === 'sedes'" class="tab-panel">
+      <p class="panel-hint">
+        Una <b>sede</b> es un campus o jornada del colegio. Sirve para <b>agrupar grupos y estudiantes</b> cuando hay más de una:
+        al crear o editar un grupo eliges su sede, y los estudiantes que crees dentro la heredan.
+        Si tu colegio tiene una sola sede, puedes ignorar esta pestaña: todo funciona igual sin ella.
+      </p>
       <div class="cards-grid">
         <div v-for="s in sedes" :key="s.id" class="info-card">
           <div class="info-card-icon">🏢</div>
-          <div>
+          <div style="flex:1">
             <p class="info-card-title">{{ s.nombre }}</p>
-            <p class="info-card-meta">{{ s.ciudad || 'Sin ciudad' }} · {{ s._count?.aulas ?? 0 }} grupos</p>
+            <p class="info-card-meta">{{ s.ciudad || 'Sin ciudad' }}</p>
+            <p class="info-card-meta">
+              <strong>{{ s.grupos ?? 0 }}</strong> grupo(s) · <strong>{{ s.estudiantes ?? 0 }}</strong> estudiante(s)
+            </p>
+            <p v-if="(s.grupos ?? 0) === 0" class="info-card-aviso">
+              Sin grupos todavía. Asígnale uno desde ✏️ Editar en la pestaña Grupos.
+            </p>
+          </div>
+          <div v-if="esAdmin" class="card-acciones">
+            <button class="btn-mini" title="Cambiar nombre o ciudad" @click="abrirEditarSede(s)">✏️</button>
+            <button class="btn-mini peligro" title="Eliminar sede" @click="borrarSede(s)">🗑️</button>
           </div>
         </div>
-        <div v-if="sedes.length === 0" class="empty-state">No hay sedes. ¡Crea la primera!</div>
+        <div v-if="sedes.length === 0" class="empty-state">
+          No hay sedes. Créala solo si manejas varios campus o jornadas.
+        </div>
       </div>
+      <p v-if="sedeError" class="form-error">{{ sedeError }}</p>
     </section>
 
     <!-- ===================== ESTUDIANTES ===================== -->
@@ -316,6 +355,9 @@
             <p class="info-card-meta">{{ t.email }}</p>
           </div>
           <span :class="['estado-badge', t.activo === false ? 'bloq' : 'ok']">{{ t.activo === false ? '🔒' : '✅' }}</span>
+          <div v-if="esAdmin && t.id !== miId" class="card-acciones">
+            <button class="btn-mini peligro" title="Eliminar profesor" @click="borrarProfesor(t)">🗑️</button>
+          </div>
         </div>
         <div v-if="teachers.length === 0" class="empty-state">Aún no has creado profesores.</div>
       </div>
@@ -560,12 +602,15 @@
     <div v-if="showSedeModal" class="modal-overlay" @click.self="showSedeModal = false">
       <div class="modal">
         <button class="modal-close" aria-label="Cerrar" @click="showSedeModal = false">✕</button>
-        <h3>Nueva Sede</h3>
+        <h3>{{ sedeEditandoId ? '✏️ Editar sede' : 'Nueva Sede' }}</h3>
         <div class="form-group"><label>Nombre</label><input v-model="newSede.nombre" placeholder="Ej: Sede Central" /></div>
-        <div class="form-group"><label>Ciudad</label><input v-model="newSede.ciudad" placeholder="Ej: Bogotá" /></div>
+        <div class="form-group"><label>Ciudad</label><input v-model="newSede.ciudad" placeholder="Ej: Barranquilla" /></div>
+        <p v-if="sedeError" class="form-error">{{ sedeError }}</p>
         <div class="modal-actions">
           <button class="btn-secondary" @click="showSedeModal = false">Cancelar</button>
-          <button class="btn-primary" @click="createSede">Crear</button>
+          <button class="btn-primary" :disabled="guardandoSede" @click="createSede">
+            {{ guardandoSede ? 'Guardando…' : (sedeEditandoId ? 'Guardar' : 'Crear') }}
+          </button>
         </div>
       </div>
     </div>
@@ -590,6 +635,73 @@
         <div class="modal-actions">
           <button class="btn-secondary" @click="showStudentModal = false">Cancelar</button>
           <button class="btn-primary" @click="createStudent">Crear</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal editar grupo -->
+    <div v-if="showEditGroupModal" class="modal-overlay" @click.self="showEditGroupModal = false">
+      <div class="modal">
+        <button class="modal-close" aria-label="Cerrar" @click="showEditGroupModal = false">✕</button>
+        <h3>✏️ Editar grupo</h3>
+        <div class="form-group"><label>Nombre</label><input v-model="editGroup.nombre" type="text" /></div>
+        <div class="form-group">
+          <label>Sede</label>
+          <select v-model="editGroup.institucion_id" class="filter-select">
+            <option :value="null">— Sin sede —</option>
+            <option v-for="sd in sedes" :key="sd.id" :value="sd.id">{{ sd.nombre }}{{ sd.ciudad ? ` · ${sd.ciudad}` : '' }}</option>
+          </select>
+        </div>
+        <p v-if="groupError" class="form-error">{{ groupError }}</p>
+        <div class="modal-actions">
+          <button class="btn-secondary" @click="showEditGroupModal = false">Cancelar</button>
+          <button class="btn-primary" :disabled="guardandoGrupo" @click="guardarGrupo">{{ guardandoGrupo ? 'Guardando…' : 'Guardar' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal eliminar grupo -->
+    <div v-if="showDeleteGroupModal" class="modal-overlay" @click.self="showDeleteGroupModal = false">
+      <div class="modal">
+        <button class="modal-close" aria-label="Cerrar" @click="showDeleteGroupModal = false">✕</button>
+        <h3>🗑️ Eliminar grupo</h3>
+        <p class="modal-help">
+          Vas a eliminar <strong>{{ borrarGrupo.nombre }}</strong>.
+        </p>
+        <ul class="impacto-lista">
+          <li><strong>{{ borrarGrupo.estudiantes }}</strong> estudiante(s) dejarán de pertenecer al grupo</li>
+          <li><strong>{{ borrarGrupo.asignaciones }}</strong> asignación(es) de mundos se borrarán</li>
+          <li class="ok">Sus cuentas y todo su progreso <strong>se conservan</strong></li>
+        </ul>
+        <p v-if="groupError" class="form-error">{{ groupError }}</p>
+        <div class="modal-actions">
+          <button class="btn-secondary" @click="showDeleteGroupModal = false">Cancelar</button>
+          <button class="btn-danger" :disabled="borrandoGrupo" @click="confirmarBorrarGrupo">{{ borrandoGrupo ? 'Eliminando…' : 'Sí, eliminar grupo' }}</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Modal eliminar estudiante -->
+    <div v-if="showDeleteStudentModal" class="modal-overlay" @click.self="showDeleteStudentModal = false">
+      <div class="modal">
+        <button class="modal-close" aria-label="Cerrar" @click="showDeleteStudentModal = false">✕</button>
+        <h3>🗑️ Eliminar cuenta</h3>
+        <p class="modal-help">
+          Vas a eliminar la cuenta de <strong>{{ borrarAlumno.nombre }}</strong> ({{ borrarAlumno.email }}).
+          Esto <strong>no se puede deshacer</strong>.
+        </p>
+        <ul class="impacto-lista">
+          <li class="alerta">Se borran <strong>{{ borrarAlumno.completados }}</strong> nivel(es) completados y <strong>{{ borrarAlumno.sesiones }}</strong> sesión(es) de trabajo</li>
+          <li class="alerta">Se borran <strong>{{ borrarAlumno.logros }}</strong> logro(s) y su inventario</li>
+          <li>Sale de <strong>{{ borrarAlumno.grupos }}</strong> grupo(s)</li>
+        </ul>
+        <p class="modal-help">
+          ¿Solo quieres sacarlo de este grupo? Cierra esto y usa <strong>➖ Quitar</strong>: conserva la cuenta y el progreso.
+        </p>
+        <p v-if="studentError" class="form-error">{{ studentError }}</p>
+        <div class="modal-actions">
+          <button class="btn-secondary" @click="showDeleteStudentModal = false">Cancelar</button>
+          <button class="btn-danger" :disabled="borrandoAlumno" @click="confirmarBorrarEstudiante">{{ borrandoAlumno ? 'Eliminando…' : 'Sí, eliminar cuenta' }}</button>
         </div>
       </div>
     </div>
@@ -669,6 +781,17 @@
         <div class="form-group">
           <label>Nombre del aula</label>
           <input v-model="newClassroom.nombre" type="text" placeholder="Ej: Clase 4B - Programación" />
+        </div>
+        <div class="form-group">
+          <label>Sede <span class="opt">(opcional)</span></label>
+          <select v-model="newClassroom.institucion_id" class="filter-select">
+            <option :value="undefined">— Sin sede —</option>
+            <option v-for="sd in sedes" :key="sd.id" :value="sd.id">{{ sd.nombre }}{{ sd.ciudad ? ` · ${sd.ciudad}` : '' }}</option>
+          </select>
+          <p class="modal-help">
+            <template v-if="sedes.length">Agrupa el aula por campus o jornada. Los estudiantes que crees aquí heredan esta sede.</template>
+            <template v-else>Todavía no hay sedes. Créalas en la pestaña 🏢 Sedes si manejas varios campus o jornadas.</template>
+          </p>
         </div>
         <div class="form-group">
           <label>➕ Agregar estudiantes ahora <span class="opt">(opcional)</span></label>
@@ -903,7 +1026,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
-import { teacherApi, curriculumApi } from '@/api/index';
+import { teacherApi, curriculumApi, mensajeError } from '@/api/index';
 import { MATERIAS } from '@/data/materias';
 
 const authStore = useAuthStore();
@@ -915,7 +1038,7 @@ const isLoading = ref(false);
 const showCreateModal = ref(false);
 const filterWorld = ref('');
 const filterModality = ref('');
-const newClassroom = ref({ nombre: '' });
+const newClassroom = ref<{ nombre: string; institucion_id?: number }>({ nombre: '' });
 const newClassroomAlumnos = ref(''); // estudiantes opcionales al crear el aula (uno por línea)
 const newClassroomBanda = ref('aventureros');
 const createResultado = ref<any>(null);
@@ -964,7 +1087,7 @@ async function loadTeachers() { teachers.value = (await teacherApi.getTeachers()
 async function createTeacher() {
   teacherError.value = '';
   try { await teacherApi.createTeacher({ ...newTeacher.value }); showTeacherModal.value = false; newTeacher.value = { nombre: '', email: '', password: '' }; await loadTeachers(); }
-  catch (e: any) { teacherError.value = e.response?.data?.error ?? 'No se pudo crear'; }
+  catch (e) { teacherError.value = mensajeError(e, 'No se pudo crear el profesor'); }
 }
 
 // Bloqueo de acceso
@@ -1184,13 +1307,207 @@ async function quitarAsignacionGrupo(a: any) {
   await loadAssignments();
 }
 
+// --------------- Administracion de grupos, cuentas y sedes ---------------
+const esAdmin = computed(() => authStore.user?.rol === 'admin');
+const miId = computed(() => authStore.user?.id);
+
+/** Un docente administra SUS grupos; un admin, todos. */
+function puedeAdministrar(aula: any): boolean {
+  if (!aula) return false;
+  return esAdmin.value || aula.esMio !== false;
+}
+
+// --- Editar grupo ---
+const showEditGroupModal = ref(false);
+const editGroup = ref<{ id: number | null; nombre: string; institucion_id: number | null }>({ id: null, nombre: '', institucion_id: null });
+const groupError = ref('');
+const guardandoGrupo = ref(false);
+
+async function abrirEditarGrupo() {
+  if (!selectedClassroom.value) return;
+  if (!sedes.value.length) await loadSedes();
+  groupError.value = '';
+  editGroup.value = {
+    id: selectedClassroom.value.id,
+    nombre: selectedClassroom.value.nombre,
+    institucion_id: selectedClassroom.value.institucion?.id ?? selectedClassroom.value.institucionId ?? null,
+  };
+  showEditGroupModal.value = true;
+}
+
+async function guardarGrupo() {
+  if (!editGroup.value.id || guardandoGrupo.value) return;
+  groupError.value = '';
+  guardandoGrupo.value = true;
+  try {
+    await teacherApi.updateClassroom(editGroup.value.id, {
+      nombre: editGroup.value.nombre,
+      institucion_id: editGroup.value.institucion_id,
+    });
+    classrooms.value = (await teacherApi.getClassrooms()).classrooms;
+    const actualizada = classrooms.value.find((c) => c.id === editGroup.value.id);
+    if (actualizada) selectedClassroom.value = actualizada;
+    await loadSedes();
+    showEditGroupModal.value = false;
+  } catch (e) {
+    groupError.value = mensajeError(e, 'No se pudo guardar el grupo');
+  } finally {
+    guardandoGrupo.value = false;
+  }
+}
+
+// --- Eliminar grupo ---
+const showDeleteGroupModal = ref(false);
+const borrarGrupo = ref({ id: 0, nombre: '', estudiantes: 0, asignaciones: 0 });
+const borrandoGrupo = ref(false);
+
+async function abrirBorrarGrupo() {
+  if (!selectedClassroom.value) return;
+  groupError.value = '';
+  const id = selectedClassroom.value.id;
+  try {
+    const imp = await teacherApi.getClassroomDeleteImpact(id);
+    borrarGrupo.value = { id, nombre: imp.nombre, estudiantes: imp.estudiantes, asignaciones: imp.asignaciones };
+    showDeleteGroupModal.value = true;
+  } catch (e) {
+    alert(mensajeError(e, 'No se pudo consultar el grupo'));
+  }
+}
+
+async function confirmarBorrarGrupo() {
+  if (borrandoGrupo.value) return;
+  groupError.value = '';
+  borrandoGrupo.value = true;
+  try {
+    await teacherApi.deleteClassroom(borrarGrupo.value.id);
+    classrooms.value = (await teacherApi.getClassrooms()).classrooms;
+    const siguiente = classrooms.value[0] ?? null;
+    selectedClassroom.value = siguiente;
+    if (siguiente) await selectClassroom(siguiente);
+    await loadSedes();
+    showDeleteGroupModal.value = false;
+  } catch (e) {
+    groupError.value = mensajeError(e, 'No se pudo eliminar el grupo');
+  } finally {
+    borrandoGrupo.value = false;
+  }
+}
+
+// --- Sacar del grupo (conserva la cuenta) ---
+async function quitarDelGrupo(estudiante: any) {
+  if (!selectedClassroom.value) return;
+  const ok = confirm(
+    '\u00bfSacar a ' + estudiante.nombre + ' de "' + selectedClassroom.value.nombre + '"?\n\n' +
+    'Su cuenta y todo su progreso se conservan: solo deja de pertenecer a este grupo.',
+  );
+  if (!ok) return;
+  try {
+    await teacherApi.removeStudentFromClassroom(selectedClassroom.value.id, estudiante.id);
+    await selectClassroom(selectedClassroom.value);
+    classrooms.value = (await teacherApi.getClassrooms()).classrooms;
+  } catch (e) {
+    alert(mensajeError(e, 'No se pudo sacar del grupo'));
+  }
+}
+
+// --- Eliminar la cuenta de un estudiante ---
+const showDeleteStudentModal = ref(false);
+const borrarAlumno = ref({ id: 0, nombre: '', email: '', grupos: 0, sesiones: 0, completados: 0, logros: 0 });
+const borrandoAlumno = ref(false);
+
+async function abrirBorrarEstudiante(estudiante: any) {
+  studentError.value = '';
+  try {
+    const imp = await teacherApi.getStudentDeleteImpact(estudiante.id);
+    borrarAlumno.value = { id: estudiante.id, ...imp };
+    showDeleteStudentModal.value = true;
+  } catch (e) {
+    alert(mensajeError(e, 'No se pudo consultar el estudiante'));
+  }
+}
+
+async function confirmarBorrarEstudiante() {
+  if (borrandoAlumno.value) return;
+  studentError.value = '';
+  borrandoAlumno.value = true;
+  try {
+    await teacherApi.deleteStudent(borrarAlumno.value.id);
+    if (selectedClassroom.value) await selectClassroom(selectedClassroom.value);
+    classrooms.value = (await teacherApi.getClassrooms()).classrooms;
+    if (allStudents.value.length) await loadAllStudents();
+    showDeleteStudentModal.value = false;
+  } catch (e) {
+    studentError.value = mensajeError(e, 'No se pudo eliminar la cuenta');
+  } finally {
+    borrandoAlumno.value = false;
+  }
+}
+
+// --- Eliminar profesor ---
+async function borrarProfesor(t: any) {
+  if (!confirm('\u00bfEliminar la cuenta de ' + t.nombre + '?\n\nSi todavia tiene grupos, el sistema no lo permitira.')) return;
+  try {
+    await teacherApi.deleteTeacher(t.id);
+    await loadTeachers();
+  } catch (e) {
+    alert(mensajeError(e, 'No se pudo eliminar el profesor'));
+  }
+}
+
+// --- Sedes ---
+const sedeError = ref('');
+const sedeEditandoId = ref<number | null>(null);
+const guardandoSede = ref(false);
+
 async function loadSedes() { sedes.value = (await teacherApi.getSedes()).sedes; }
+
+function abrirEditarSede(s: any) {
+  sedeError.value = '';
+  sedeEditandoId.value = s.id;
+  newSede.value = { nombre: s.nombre, ciudad: s.ciudad ?? '' };
+  showSedeModal.value = true;
+}
+
 async function createSede() {
-  if (!newSede.value.nombre) return;
-  await teacherApi.createSede({ nombre: newSede.value.nombre, ciudad: newSede.value.ciudad || undefined });
-  await loadSedes();
-  showSedeModal.value = false;
-  newSede.value = { nombre: '', ciudad: '' };
+  if (!newSede.value.nombre || guardandoSede.value) return;
+  sedeError.value = '';
+  guardandoSede.value = true;
+  try {
+    const payload = { nombre: newSede.value.nombre, ciudad: newSede.value.ciudad || undefined };
+    if (sedeEditandoId.value) await teacherApi.updateSede(sedeEditandoId.value, payload);
+    else await teacherApi.createSede(payload);
+    await loadSedes();
+    showSedeModal.value = false;
+    sedeEditandoId.value = null;
+    newSede.value = { nombre: '', ciudad: '' };
+  } catch (e) {
+    sedeError.value = mensajeError(e, 'No se pudo guardar la sede');
+  } finally {
+    guardandoSede.value = false;
+  }
+}
+
+async function borrarSede(s: any) {
+  sedeError.value = '';
+  if (!confirm('\u00bfEliminar la sede "' + s.nombre + '"?')) return;
+  try {
+    await teacherApi.deleteSede(s.id);
+    await loadSedes();
+  } catch (e: any) {
+    // El backend responde 409 si la sede esta en uso: se pide confirmar el desvinculo.
+    if (e?.requiereConfirmacion) {
+      if (!confirm(e.error + '\n\n\u00bfContinuar? Los grupos y estudiantes NO se borran: solo quedan sin sede.')) return;
+      try {
+        await teacherApi.deleteSede(s.id, true);
+        await loadSedes();
+        classrooms.value = (await teacherApi.getClassrooms()).classrooms;
+      } catch (e2) {
+        sedeError.value = mensajeError(e2, 'No se pudo eliminar la sede');
+      }
+      return;
+    }
+    sedeError.value = mensajeError(e, 'No se pudo eliminar la sede');
+  }
 }
 
 async function loadAllStudents() { allStudents.value = (await teacherApi.getAllStudents(studentSearch.value || undefined)).students; }
@@ -1208,7 +1525,7 @@ async function createStudent() {
     studentAulaTarget.value = undefined;
     if (activeTab.value === 'estudiantes') await loadAllStudents();
   } catch (e: any) {
-    studentError.value = e.response?.data?.error ?? 'No se pudo crear';
+    studentError.value = mensajeError(e, 'No se pudo crear');
   }
 }
 
@@ -1249,7 +1566,7 @@ async function createAssignment() {
     await loadAssignments();
     alert(`✅ ${res.creadas} mundo(s) asignados correctamente.`);
   } catch (e: any) {
-    assignError.value = e.response?.data?.error ?? 'No se pudo asignar';
+    assignError.value = mensajeError(e, 'No se pudo asignar');
   }
 }
 async function deleteAssignment(id: number) {
@@ -1354,7 +1671,10 @@ async function createClassroom() {
   if (!newClassroom.value.nombre || creandoAula.value) return;
   creandoAula.value = true;
   try {
-    const data = await teacherApi.createClassroom({ nombre: newClassroom.value.nombre });
+    const data = await teacherApi.createClassroom({
+      nombre: newClassroom.value.nombre,
+      institucion_id: newClassroom.value.institucion_id,
+    });
 
     // Si el docente escribió estudiantes, se crean e inscriben de una vez.
     let resultado: any = null;
@@ -2089,4 +2409,75 @@ table.matriz thead th.col-total { z-index: 4; }
 .check-todo { display: block; font-size: 0.88rem; color: #334155; margin-bottom: 0.4rem; }
 .niveles-lista { max-height: 160px; overflow-y: auto; border-top: 1px solid #E2E8F0; padding-top: 0.4rem; }
 .check-niv { display: block; font-size: 0.82rem; color: #475569; padding: 2px 0; cursor: pointer; }
+/* Administracion de grupos, cuentas y sedes */
+.titulo-grupo {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+.titulo-grupo h2 { margin: 0; }
+.sede-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.7rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+  background: #EDE9FE;
+  color: #5B21B6;
+  border: 1px solid #C4B5FD;
+}
+.sede-chip.otro-docente { background: #E0F2FE; color: #0369A1; border-color: #7DD3FC; }
+
+.btn-mini {
+  padding: 0.35rem 0.7rem;
+  border-radius: 9px;
+  border: 1px solid #CBD5E1;
+  background: #F8FAFC;
+  color: #334155;
+  font-family: inherit;
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s, border-color 0.15s;
+}
+.btn-mini:hover { background: #EEF2FF; border-color: #A5B4FC; color: #3730A3; }
+.btn-mini.peligro { background: #FEE2E2; color: #B91C1C; border-color: #FCA5A5; }
+.btn-mini.peligro:hover { background: #FECACA; border-color: #F87171; color: #991B1B; }
+
+.acciones-cell { display: flex; gap: 0.35rem; align-items: center; }
+.card-acciones { display: flex; gap: 0.3rem; align-items: flex-start; }
+
+.btn-danger {
+  padding: 0.75rem 1.25rem;
+  border: none;
+  border-radius: 12px;
+  background: #DC2626;
+  color: #fff;
+  font-family: inherit;
+  font-size: 0.95rem;
+  font-weight: 800;
+  cursor: pointer;
+  transition: background 0.15s, transform 0.15s;
+}
+.btn-danger:hover:not(:disabled) { background: #B91C1C; transform: translateY(-1px); }
+.btn-danger:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
+.impacto-lista {
+  margin: 0.9rem 0;
+  padding: 0.85rem 0.9rem 0.85rem 2.1rem;
+  border-radius: 12px;
+  background: #F8FAFC;
+  border: 1px solid #E2E8F0;
+  color: #334155;
+  font-size: 0.88rem;
+  line-height: 1.65;
+}
+.impacto-lista li.alerta { color: #B91C1C; }
+.impacto-lista li.ok { color: #15803D; }
+.info-card-aviso { margin: 0.3rem 0 0; font-size: 0.76rem; color: #B45309; }
+
 </style>

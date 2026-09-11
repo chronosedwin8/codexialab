@@ -19,6 +19,54 @@ const enrollSchema = z.object({
   estudiante_id: z.number(),
 });
 
+/**
+ * Normaliza un correo: quita espacios (copiar-pegar suele traerlos) y pasa a
+ * minúsculas. Sin esto, "Ana@X" y "ana@x" creaban DOS cuentas distintas y el
+ * SSO de Microsoft —que siempre entrega el correo en minúsculas— no encontraba
+ * la cuenta del estudiante.
+ */
+function normalizarEmail(email: string): string {
+  return email.trim().toLowerCase();
+}
+
+/** Traduce los errores de zod a un mensaje que el docente pueda entender. */
+function mensajeValidacion(error: z.ZodError): string {
+  const primero = error.issues[0];
+  if (!primero) return 'Revisa los datos del formulario';
+  const campo = String(primero.path[0] ?? '');
+  const etiquetas: Record<string, string> = {
+    nombre: 'El nombre', email: 'El correo', password: 'La contraseña',
+    banda_edad: 'La banda de edad', ciudad: 'La ciudad',
+  };
+  const etiqueta = etiquetas[campo] ?? 'El dato';
+  if (primero.code === 'invalid_string' && (primero as { validation?: string }).validation === 'email') {
+    return 'El correo no es válido. Revisa que no tenga espacios ni le falte el @';
+  }
+  if (primero.code === 'too_small') {
+    const min = (primero as { minimum?: number }).minimum ?? 0;
+    return `${etiqueta} debe tener al menos ${min} caracteres`;
+  }
+  if (primero.code === 'too_big') {
+    const max = (primero as { maximum?: number }).maximum ?? 0;
+    return `${etiqueta} no puede superar ${max} caracteres`;
+  }
+  return `${etiqueta} no es válido`;
+}
+
+/**
+ * Devuelve el aula si el usuario puede administrarla (su dueño, o admin).
+ * null si no existe o no tiene permiso.
+ */
+async function aulaAdministrable(aulaId: number, user: { id: number; rol: string }) {
+  const aula = await prisma.classroom.findUnique({
+    where: { id: aulaId },
+    select: { id: true, nombre: true, docenteId: true, institucionId: true },
+  });
+  if (!aula) return null;
+  if (aula.docenteId !== user.id && user.rol !== 'admin') return null;
+  return aula;
+}
+
 function generateClassCode(): string {
   return Math.random().toString(36).substring(2, 8).toUpperCase();
 }
@@ -33,16 +81,26 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       return reply.code(403).send({ error: 'Solo docentes pueden acceder' });
     }
 
+    // Un docente ve SUS grupos; un admin ve los de todo el colegio (por eso se
+    // incluye el nombre del docente: sin él, en el panel del admin no se sabría
+    // de quién es cada grupo).
     const classrooms = await prisma.classroom.findMany({
-      where: { docenteId: user.id, activa: true },
+      where: { activa: true, ...(user.rol === 'admin' ? {} : { docenteId: user.id }) },
       include: {
         _count: { select: { inscripciones: true } },
-        institucion: { select: { nombre: true } },
+        institucion: { select: { id: true, nombre: true } },
+        docente: { select: { id: true, nombre: true } },
       },
       orderBy: { creadoEn: 'desc' },
     });
 
-    return reply.send({ classrooms });
+    return reply.send({
+      classrooms: classrooms.map((c) => ({
+        ...c,
+        // Marca si quien pregunta puede administrarlo (para habilitar editar/borrar).
+        esMio: c.docenteId === user.id,
+      })),
+    });
   });
 
   fastify.post('/classrooms', {
@@ -69,6 +127,94 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
     });
 
     return reply.code(201).send({ classroom });
+  });
+
+  // ─── Editar un grupo (nombre y sede) ───
+  fastify.patch('/classrooms/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const aulaId = parseInt((request.params as { id: string }).id, 10);
+    const aula = await aulaAdministrable(aulaId, user);
+    if (!aula) return reply.code(403).send({ error: 'Este grupo no existe o no es tuyo' });
+
+    const schema = z.object({
+      nombre: z.string().trim().min(2).max(150).optional(),
+      // null desvincula el grupo de su sede.
+      institucion_id: z.number().nullable().optional(),
+    });
+    const r = schema.safeParse(request.body);
+    if (!r.success) return reply.code(400).send({ error: mensajeValidacion(r.error) });
+
+    if (r.data.institucion_id != null) {
+      const sede = await prisma.institution.findUnique({ where: { id: r.data.institucion_id } });
+      if (!sede) return reply.code(400).send({ error: 'La sede indicada no existe' });
+    }
+
+    const classroom = await prisma.classroom.update({
+      where: { id: aulaId },
+      data: {
+        ...(r.data.nombre !== undefined ? { nombre: r.data.nombre } : {}),
+        ...(r.data.institucion_id !== undefined ? { institucionId: r.data.institucion_id } : {}),
+      },
+      select: { id: true, nombre: true, codigoAcceso: true, institucionId: true },
+    });
+    return reply.send({ classroom });
+  });
+
+  // ─── Qué se perdería al borrar el grupo (para avisar ANTES de confirmar) ───
+  fastify.get('/classrooms/:id/impacto-borrado', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const aulaId = parseInt((request.params as { id: string }).id, 10);
+    const aula = await aulaAdministrable(aulaId, user);
+    if (!aula) return reply.code(403).send({ error: 'Este grupo no existe o no es tuyo' });
+
+    const [estudiantes, asignaciones] = await Promise.all([
+      prisma.enrollment.count({ where: { aulaId } }),
+      prisma.assignment.count({ where: { aulaId } }),
+    ]);
+    return reply.send({ nombre: aula.nombre, estudiantes, asignaciones });
+  });
+
+  // ─── Eliminar un grupo ───
+  // Borra el grupo, sus inscripciones y sus asignaciones. Las CUENTAS de los
+  // estudiantes y su progreso NO se tocan: siguen existiendo y conservan todo,
+  // solo dejan de pertenecer a este grupo.
+  fastify.delete('/classrooms/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const aulaId = parseInt((request.params as { id: string }).id, 10);
+    const aula = await aulaAdministrable(aulaId, user);
+    if (!aula) return reply.code(403).send({ error: 'Este grupo no existe o no es tuyo' });
+
+    const [inscripciones, asignaciones] = await prisma.$transaction([
+      prisma.enrollment.deleteMany({ where: { aulaId } }),
+      prisma.assignment.deleteMany({ where: { aulaId } }),
+      prisma.classroom.delete({ where: { id: aulaId } }),
+    ]);
+
+    request.log.info({ aulaId, nombre: aula.nombre, por: user.id }, 'Grupo eliminado');
+    return reply.send({
+      ok: true,
+      nombre: aula.nombre,
+      estudiantesLiberados: inscripciones.count,
+      asignacionesBorradas: asignaciones.count,
+    });
+  });
+
+  // ─── Sacar a un estudiante del grupo (sin borrar su cuenta) ───
+  fastify.delete('/classrooms/:id/students/:sid', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const { id, sid } = request.params as { id: string; sid: string };
+    const aulaId = parseInt(id, 10);
+    const estudianteId = parseInt(sid, 10);
+    const aula = await aulaAdministrable(aulaId, user);
+    if (!aula) return reply.code(403).send({ error: 'Este grupo no existe o no es tuyo' });
+
+    const borradas = await prisma.enrollment.deleteMany({ where: { aulaId, estudianteId } });
+    if (borradas.count === 0) return reply.code(404).send({ error: 'Ese estudiante no está en el grupo' });
+    return reply.send({ ok: true });
   });
 
   fastify.get('/classrooms/:id/students', {
@@ -621,20 +767,98 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   fastify.get('/sedes', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const user = request.user as { rol: string };
     if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    // Se devuelven los conteos REALES (grupos y estudiantes) para que la sede
+    // no sea una ficha vacía: así el docente ve de un vistazo qué hay en cada una.
     const sedes = await prisma.institution.findMany({
       where: { activa: true },
-      select: { id: true, nombre: true, ciudad: true, pais: true, _count: { select: { aulas: true } } },
+      select: {
+        id: true, nombre: true, ciudad: true, pais: true,
+        _count: { select: { aulas: true, usuarios: true } },
+      },
       orderBy: { nombre: 'asc' },
     });
-    return reply.send({ sedes });
+
+    const estudiantesPorSede = await prisma.user.groupBy({
+      by: ['institucionId'],
+      where: { rol: 'estudiante', institucionId: { not: null } },
+      _count: { _all: true },
+    });
+    const mapa = new Map(estudiantesPorSede.map((e) => [e.institucionId, e._count._all]));
+
+    return reply.send({
+      sedes: sedes.map((s) => ({
+        id: s.id, nombre: s.nombre, ciudad: s.ciudad, pais: s.pais,
+        grupos: s._count.aulas,
+        estudiantes: mapa.get(s.id) ?? 0,
+        personas: s._count.usuarios,
+      })),
+    });
+  });
+
+  // ─── Editar una sede (solo admin: es estructura del colegio) ───
+  fastify.patch('/sedes/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { rol: string };
+    if (user.rol !== 'admin') return reply.code(403).send({ error: 'Solo un administrador puede editar sedes' });
+    const sedeId = parseInt((request.params as { id: string }).id, 10);
+    const schema = z.object({
+      nombre: z.string().trim().min(2).max(200).optional(),
+      ciudad: z.string().trim().max(100).optional(),
+    });
+    const r = schema.safeParse(request.body);
+    if (!r.success) return reply.code(400).send({ error: mensajeValidacion(r.error) });
+    if (!(await prisma.institution.findUnique({ where: { id: sedeId } }))) {
+      return reply.code(404).send({ error: 'Esa sede no existe' });
+    }
+    const sede = await prisma.institution.update({ where: { id: sedeId }, data: r.data });
+    return reply.send({ sede });
+  });
+
+  // ─── Eliminar una sede (solo admin) ───
+  // Si tiene grupos o personas asociadas NO se borra a ciegas: se avisa. Con
+  // ?forzar=1 se desvinculan (quedan sin sede) y luego se elimina. Nunca se
+  // borran grupos ni cuentas por eliminar una sede.
+  fastify.delete('/sedes/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { rol: string };
+    if (user.rol !== 'admin') return reply.code(403).send({ error: 'Solo un administrador puede eliminar sedes' });
+    const sedeId = parseInt((request.params as { id: string }).id, 10);
+    const { forzar } = request.query as { forzar?: string };
+
+    const sede = await prisma.institution.findUnique({ where: { id: sedeId }, select: { id: true, nombre: true } });
+    if (!sede) return reply.code(404).send({ error: 'Esa sede no existe' });
+
+    const [grupos, personas] = await Promise.all([
+      prisma.classroom.count({ where: { institucionId: sedeId } }),
+      prisma.user.count({ where: { institucionId: sedeId } }),
+    ]);
+
+    if ((grupos > 0 || personas > 0) && forzar !== '1') {
+      return reply.code(409).send({
+        error: `La sede "${sede.nombre}" tiene ${grupos} grupo(s) y ${personas} persona(s). Si la eliminas, quedarán SIN sede (no se borra nada más).`,
+        grupos, personas, requiereConfirmacion: true,
+      });
+    }
+
+    await prisma.$transaction([
+      prisma.classroom.updateMany({ where: { institucionId: sedeId }, data: { institucionId: null } }),
+      prisma.user.updateMany({ where: { institucionId: sedeId }, data: { institucionId: null } }),
+      prisma.institution.delete({ where: { id: sedeId } }),
+    ]);
+
+    request.log.info({ sedeId, nombre: sede.nombre, grupos, personas }, 'Sede eliminada');
+    return reply.send({ ok: true, nombre: sede.nombre, gruposDesvinculados: grupos, personasDesvinculadas: personas });
   });
 
   fastify.post('/sedes', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const user = request.user as { rol: string };
     if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
-    const schema = z.object({ nombre: z.string().min(2).max(200), ciudad: z.string().max(100).optional() });
+    const schema = z.object({ nombre: z.string().trim().min(2).max(200), ciudad: z.string().trim().max(100).optional() });
     const r = schema.safeParse(request.body);
-    if (!r.success) return reply.code(400).send({ error: 'Datos inválidos' });
+    if (!r.success) return reply.code(400).send({ error: mensajeValidacion(r.error) });
+    const yaExiste = await prisma.institution.findFirst({
+      where: { nombre: { equals: r.data.nombre, mode: 'insensitive' }, activa: true },
+      select: { id: true },
+    });
+    if (yaExiste) return reply.code(409).send({ error: `Ya existe una sede llamada "${r.data.nombre}"` });
     const sede = await prisma.institution.create({ data: { nombre: r.data.nombre, ciudad: r.data.ciudad } });
     return reply.code(201).send({ sede });
   });
@@ -659,25 +883,126 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
     const user = request.user as { rol: string };
     if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
     const schema = z.object({
-      nombre: z.string().min(2).max(150),
-      email: z.string().email(),
+      nombre: z.string().trim().min(2).max(150),
+      email: z.string().transform(normalizarEmail).pipe(z.string().email()),
       password: z.string().min(4).max(100),
       banda_edad: z.enum(['exploradores', 'aventureros', 'heroes']).optional(),
       aula_id: z.number().optional(), // si viene, se inscribe de una vez en ese grupo
+      institucion_id: z.number().optional(), // sede a la que pertenece
     });
     const r = schema.safeParse(request.body);
-    if (!r.success) return reply.code(400).send({ error: 'Datos inválidos', details: r.error.flatten() });
+    if (!r.success) return reply.code(400).send({ error: mensajeValidacion(r.error) });
     const existe = await prisma.user.findUnique({ where: { email: r.data.email } });
-    if (existe) return reply.code(409).send({ error: 'Ya existe un usuario con ese email' });
+    if (existe) return reply.code(409).send({ error: `Ya existe una cuenta con el correo ${r.data.email}` });
     const hash = await bcrypt.hash(r.data.password, 10);
     const student = await prisma.user.create({
-      data: { nombre: r.data.nombre, email: r.data.email, passwordHash: hash, rol: 'estudiante', bandaEdad: r.data.banda_edad ?? 'aventureros' },
+      data: {
+        nombre: r.data.nombre, email: r.data.email, passwordHash: hash, rol: 'estudiante',
+        bandaEdad: r.data.banda_edad ?? 'aventureros',
+        // Si no se indica sede, hereda la del grupo en que se inscribe.
+        institucionId: r.data.institucion_id
+          ?? (r.data.aula_id
+            ? (await prisma.classroom.findUnique({ where: { id: r.data.aula_id }, select: { institucionId: true } }))?.institucionId ?? undefined
+            : undefined),
+      },
       select: { id: true, nombre: true, email: true, bandaEdad: true },
     });
     if (r.data.aula_id) {
       await prisma.enrollment.create({ data: { estudianteId: student.id, aulaId: r.data.aula_id } }).catch(() => {});
     }
     return reply.code(201).send({ student });
+  });
+
+  /**
+   * ¿Puede este usuario administrar a este estudiante?
+   * Un admin, a cualquiera. Un docente, solo a quien esté inscrito en alguno
+   * de SUS grupos: así un profesor no puede tocar alumnos de otro colegio o
+   * de otro profesor.
+   */
+  async function puedeAdministrarEstudiante(estudianteId: number, user: { id: number; rol: string }) {
+    const alumno = await prisma.user.findUnique({
+      where: { id: estudianteId },
+      select: { id: true, nombre: true, email: true, rol: true },
+    });
+    if (!alumno) return { ok: false as const, code: 404, error: 'Ese estudiante no existe' };
+    if (alumno.rol !== 'estudiante') {
+      return { ok: false as const, code: 400, error: 'Esta acción es solo para cuentas de estudiante' };
+    }
+    if (alumno.email === 'preescolar@codexia.local') {
+      return { ok: false as const, code: 400, error: 'La cuenta compartida de Preescolar no se puede eliminar' };
+    }
+    if (user.rol === 'admin') return { ok: true as const, alumno };
+    const enAlgunGrupoMio = await prisma.enrollment.findFirst({
+      where: { estudianteId, aula: { docenteId: user.id } },
+      select: { id: true },
+    });
+    if (!enAlgunGrupoMio) return { ok: false as const, code: 403, error: 'Ese estudiante no está en ninguno de tus grupos' };
+    return { ok: true as const, alumno };
+  }
+
+  // ─── Qué se perdería al eliminar la cuenta de un estudiante ───
+  fastify.get('/students/:id/impacto-borrado', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const estudianteId = parseInt((request.params as { id: string }).id, 10);
+    const permiso = await puedeAdministrarEstudiante(estudianteId, user);
+    if (!permiso.ok) return reply.code(permiso.code).send({ error: permiso.error });
+
+    const [grupos, sesiones, completados, logros] = await Promise.all([
+      prisma.enrollment.count({ where: { estudianteId } }),
+      prisma.levelSession.count({ where: { usuarioId: estudianteId } }),
+      prisma.levelSession.count({ where: { usuarioId: estudianteId, completada: true } }),
+      prisma.userAchievement.count({ where: { usuarioId: estudianteId } }),
+    ]);
+    return reply.send({ nombre: permiso.alumno.nombre, email: permiso.alumno.email, grupos, sesiones, completados, logros });
+  });
+
+  // ─── Eliminar la cuenta de un estudiante (definitivo) ───
+  // Arrastra su progreso, envíos, logros e inventario: la BD tiene ON DELETE
+  // CASCADE en esas tablas. Para sacarlo de un grupo SIN perder nada, usa
+  // DELETE /classrooms/:id/students/:sid.
+  fastify.delete('/students/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const estudianteId = parseInt((request.params as { id: string }).id, 10);
+    if (estudianteId === user.id) return reply.code(400).send({ error: 'No puedes eliminar tu propia cuenta' });
+
+    const permiso = await puedeAdministrarEstudiante(estudianteId, user);
+    if (!permiso.ok) return reply.code(permiso.code).send({ error: permiso.error });
+
+    const sesiones = await prisma.levelSession.count({ where: { usuarioId: estudianteId } });
+    await prisma.user.delete({ where: { id: estudianteId } });
+
+    request.log.warn({ estudianteId, email: permiso.alumno.email, por: user.id }, 'Cuenta de estudiante eliminada');
+    return reply.send({ ok: true, nombre: permiso.alumno.nombre, sesionesBorradas: sesiones });
+  });
+
+  // ─── Eliminar la cuenta de un profesor (solo admin) ───
+  // Ojo: en la BD `aulas.docente_id` es ON DELETE CASCADE, así que borrar al
+  // profesor se llevaría SUS GRUPOS por delante. Por eso aquí se exige que no
+  // le quede ninguno: primero se reasignan o se borran, y luego el profesor.
+  fastify.delete('/teachers/:id', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (user.rol !== 'admin') return reply.code(403).send({ error: 'Solo un administrador puede eliminar profesores' });
+    const docenteId = parseInt((request.params as { id: string }).id, 10);
+    if (docenteId === user.id) return reply.code(400).send({ error: 'No puedes eliminar tu propia cuenta' });
+
+    const docente = await prisma.user.findUnique({ where: { id: docenteId }, select: { id: true, nombre: true, rol: true } });
+    if (!docente) return reply.code(404).send({ error: 'Ese profesor no existe' });
+    if (docente.rol !== 'docente' && docente.rol !== 'admin') {
+      return reply.code(400).send({ error: 'Esa cuenta no es de profesor' });
+    }
+
+    const grupos = await prisma.classroom.count({ where: { docenteId } });
+    if (grupos > 0) {
+      return reply.code(409).send({
+        error: `${docente.nombre} todavía tiene ${grupos} grupo${grupos > 1 ? 's' : ''}. Elimínalo${grupos > 1 ? 's' : ''} o pásalo${grupos > 1 ? 's' : ''} a otro profesor antes de borrar la cuenta.`,
+      });
+    }
+
+    await prisma.user.delete({ where: { id: docenteId } });
+    request.log.warn({ docenteId, por: user.id }, 'Cuenta de profesor eliminada');
+    return reply.send({ ok: true, nombre: docente.nombre });
   });
 
   // ===================== ASIGNACIONES =====================
@@ -758,11 +1083,13 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       aula_id: z.number().optional(),
       banda_edad: z.enum(['exploradores', 'aventureros', 'heroes']).optional(),
       estudiantes: z.array(z.object({
-        nombre: z.string().min(1), email: z.string().email().optional(), password: z.string().optional(),
+        nombre: z.string().trim().min(1),
+        email: z.string().transform(normalizarEmail).pipe(z.string().email()).optional(),
+        password: z.string().optional(),
       })).min(1).max(300),
     });
     const r = schema.safeParse(request.body);
-    if (!r.success) return reply.code(400).send({ error: 'Datos inválidos', details: r.error.flatten() });
+    if (!r.success) return reply.code(400).send({ error: mensajeValidacion(r.error) });
 
     const creados: any[] = []; const errores: any[] = [];
     let i = 0;
@@ -770,7 +1097,7 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
       i++;
       try {
         // Email automático si no se da: derivado del nombre
-        const email = e.email || `${e.nombre.toLowerCase().replace(/[^a-z0-9]/g, '')}.${Date.now().toString().slice(-4)}${i}@codexia.edu`;
+        const email = e.email || normalizarEmail(`${e.nombre.toLowerCase().replace(/[^a-z0-9]/g, '')}.${Date.now().toString().slice(-4)}${i}@codexia.edu`);
         const pass = e.password || 'codexia123';
         let student = await prisma.user.findUnique({ where: { email } });
         let nuevo = false;
@@ -882,10 +1209,17 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   fastify.post('/teachers', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const user = request.user as { rol: string };
     if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
-    const schema = z.object({ nombre: z.string().min(2).max(150), email: z.string().email(), password: z.string().min(4).max(100) });
+    const schema = z.object({
+      nombre: z.string().trim().min(2).max(150),
+      // El correo se normaliza ANTES de validar: un espacio al copiar-pegar ya no rompe el alta.
+      email: z.string().transform(normalizarEmail).pipe(z.string().email()),
+      password: z.string().min(4).max(100),
+    });
     const r = schema.safeParse(request.body);
-    if (!r.success) return reply.code(400).send({ error: 'Datos inválidos', details: r.error.flatten() });
-    if (await prisma.user.findUnique({ where: { email: r.data.email } })) return reply.code(409).send({ error: 'Ya existe un usuario con ese email' });
+    if (!r.success) return reply.code(400).send({ error: mensajeValidacion(r.error) });
+    if (await prisma.user.findUnique({ where: { email: r.data.email } })) {
+      return reply.code(409).send({ error: `Ya existe una cuenta con el correo ${r.data.email}` });
+    }
     const hash = await bcrypt.hash(r.data.password, 10);
     // rol 'docente' → hereda automáticamente todas las capacidades (estas rutas validan por rol).
     const teacher = await prisma.user.create({ data: { nombre: r.data.nombre, email: r.data.email, passwordHash: hash, rol: 'docente' }, select: { id: true, nombre: true, email: true } });
