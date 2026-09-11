@@ -5,12 +5,12 @@
       <h1>Panel Docente</h1>
       <div v-if="activeTab === 'grupos'" class="header-actions">
         <button class="btn-secondary" @click="abrirPhidias">🔗 Importar de Phidias</button>
-        <button class="btn-primary" @click="showCreateModal = true">+ Nuevo Grupo</button>
+        <button class="btn-primary" @click="abrirCrearGrupo">+ Nuevo Grupo</button>
       </div>
       <button v-else-if="activeTab === 'sedes'" class="btn-primary" @click="showSedeModal = true">+ Nueva Sede</button>
       <div v-else-if="activeTab === 'estudiantes'" class="header-actions">
         <button class="btn-secondary" @click="openBulkModal">⬆️ Subir masivamente</button>
-        <button class="btn-primary" @click="showStudentModal = true">+ Nuevo Estudiante</button>
+        <button class="btn-primary" @click="abrirNuevoEstudiante">+ Nuevo Estudiante</button>
       </div>
       <button v-else-if="activeTab === 'profesores'" class="btn-primary" @click="showTeacherModal = true">+ Nuevo Profesor</button>
       <button v-else-if="activeTab === 'asignaciones'" class="btn-primary" @click="openAssignModal()">+ Nueva Asignación</button>
@@ -1699,6 +1699,23 @@ async function selectClassroom(aula: any) {
 const creandoAula = ref(false);
 const showCredsModal = ref(false);
 const credsData = ref<any>(null);
+/**
+ * Abre el modal de crear grupo.
+ *
+ * Carga las sedes primero: antes solo se cargaban al visitar la pestaña Sedes,
+ * así que quien iba directo a "+ Nuevo Grupo" veía el desplegable vacío y
+ * parecía que no se podía asignar sede.
+ */
+async function abrirNuevoEstudiante() {
+  showStudentModal.value = true;
+  if (!sedes.value.length) await loadSedes().catch(() => { /* opcional */ });
+}
+
+async function abrirCrearGrupo() {
+  showCreateModal.value = true;
+  if (!sedes.value.length) await loadSedes().catch(() => { /* sin sedes se crea igual */ });
+}
+
 async function createClassroom() {
   if (!newClassroom.value.nombre || creandoAula.value) return;
   creandoAula.value = true;
