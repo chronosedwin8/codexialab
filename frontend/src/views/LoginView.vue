@@ -11,13 +11,21 @@
         <button :class="['tab-btn', { active: activeTab === 'login' }]" @click="activeTab = 'login'">
           Iniciar Sesión
         </button>
+        <button :class="['tab-btn', { active: activeTab === 'ninos' }]" @click="activeTab = 'ninos'">
+          🎨 Soy pequeño
+        </button>
         <button :class="['tab-btn', { active: activeTab === 'register' }]" @click="activeTab = 'register'">
           Registrarse
         </button>
       </div>
 
+      <!-- Acceso con dibujos: para quienes aún no leen ni escriben -->
+      <div v-if="activeTab === 'ninos'" class="form-card form-card--ninos">
+        <AccesoDibujos @entrar="onEntrarNino" />
+      </div>
+
       <!-- Login Form -->
-      <form v-if="activeTab === 'login'" class="form-card" @submit.prevent="handleLogin">
+      <form v-else-if="activeTab === 'login'" class="form-card" @submit.prevent="handleLogin">
         <div class="form-group">
           <label>Correo electrónico</label>
           <input v-model="loginForm.email" type="email" placeholder="tu@email.com" required />
@@ -140,6 +148,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
 import { authApi } from '@/api';
+import AccesoDibujos from '@/components/AccesoDibujos.vue';
 
 const router = useRouter();
 const authStore = useAuthStore();
@@ -160,6 +169,12 @@ const SSO_ERRORES: Record<string, string> = {
   no_configurado: 'El ingreso con Microsoft no está habilitado en este servidor.',
   microsoft: 'Microsoft rechazó el inicio de sesión. Inténtalo de nuevo.',
 };
+
+/** El niño entró con sus dibujos: se guarda la sesión y al mapa. */
+async function onEntrarNino(datos: { token: string; user: unknown }): Promise<void> {
+  await authStore.loginConToken(datos.token);
+  router.push('/mapa');
+}
 
 function entrarConMicrosoft(): void {
   ssoEntrando.value = true;
@@ -207,7 +222,7 @@ onMounted(async () => {
   }
 });
 
-const activeTab = ref<'login' | 'register'>('login');
+const activeTab = ref<'login' | 'register' | 'ninos'>('login');
 const isLoading = ref(false);
 const loginError = ref('');
 const registerError = ref('');
@@ -495,6 +510,8 @@ async function handleRegister() {
   color: rgba(255, 255, 255, 0.6);
 }
 .sso-nota strong { color: rgba(255, 255, 255, 0.85); }
+
+.form-card--ninos { padding-top: 1.2rem; }
 
 .demo-credentials {
   text-align: center;

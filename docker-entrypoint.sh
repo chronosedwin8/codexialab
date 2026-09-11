@@ -19,6 +19,19 @@ if [ -n "$DATABASE_URL" ]; then
   else
     echo "[entrypoint] Sin dump inicial (BD vacía); la app arranca de todos modos."
   fi
+
+  # Migraciones incrementales. Son SQL idempotente (ADD COLUMN IF NOT EXISTS,
+  # CREATE TABLE IF NOT EXISTS...), asi que correrlas en cada arranque es seguro
+  # y no toca datos existentes. Se aplican SIEMPRE, tambien sobre una BD que ya
+  # estaba inicializada: es justo el caso de produccion.
+  if [ -d /app/database/migraciones ]; then
+    for m in /app/database/migraciones/*.sql; do
+      [ -f "$m" ] || continue
+      echo "[entrypoint] Aplicando migracion $(basename "$m")..."
+      psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -q -f "$m"
+    done
+    echo "[entrypoint] Migraciones al dia."
+  fi
 fi
 
 exec node backend/dist/server.js

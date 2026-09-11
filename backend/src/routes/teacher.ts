@@ -2,6 +2,15 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import { PrismaClient } from '@prisma/client';
 import bcrypt from 'bcrypt';
+import {
+  IMAGENES_PIN,
+  LONGITUD_PIN,
+  generarUsuarioLibre,
+  pinAleatorio,
+  pinValido,
+  prepararPin,
+} from '../lib/pin.js';
+import { descifrarPin, hayClaveDePin, pinAImagenes, secretoPin } from '../lib/pinVisible.js';
 import { listarKlassen, obtenerKlassen, listarEstudiantesPlano, obtenerEstudiantesPorIds, phidiasConfigurado } from '../lib/phidias.js';
 
 const prisma = new PrismaClient();
@@ -1003,6 +1012,202 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
     await prisma.user.delete({ where: { id: docenteId } });
     request.log.warn({ docenteId, por: user.id }, 'Cuenta de profesor eliminada');
     return reply.send({ ok: true, nombre: docente.nombre });
+  });
+
+  // ═══════════════════ PIN de imágenes (prelectores) ═══════════════════
+  //
+  // Los más pequeños no escriben correo ni contraseña: entran con un nombre de
+  // jugador corto y cuatro dibujos. El docente reparte esos PIN en clase, así
+  // que necesita poder verlos, cambiarlos y volver a imprimirlos.
+
+  /** Deja anotado quién miró credenciales de menores. */
+  async function anotarAcceso(datos: {
+    actorId: number; alumnoId?: number | null; accion: string; recurso: string; ip?: string;
+  }): Promise<void> {
+    await prisma.accessAudit.create({
+      data: {
+        actorId: datos.actorId,
+        alumnoId: datos.alumnoId ?? null,
+        accion: datos.accion,
+        recurso: datos.recurso,
+        ip: datos.ip ?? null,
+      },
+    }).catch(() => { /* la auditoría nunca debe tumbar la operación */ });
+  }
+
+  /** El catálogo de dibujos, para pintar el selector en el panel. */
+  fastify.get('/imagenes-pin', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    return reply.send({
+      imagenes: IMAGENES_PIN,
+      longitud: LONGITUD_PIN,
+      puedeVerPines: hayClaveDePin(secretoPin()),
+    });
+  });
+
+  /**
+   * Las credenciales del grupo, PIN incluido.
+   *
+   * Es la lista que el docente imprime y pega en la pared. Solo muestra los PIN
+   * si hay clave de cifrado configurada; si no, cada uno sale como no disponible
+   * y hay que asignar uno nuevo para conocerlo.
+   *
+   * Cada consulta queda anotada: son credenciales de menores.
+   */
+  fastify.get('/classrooms/:id/credenciales', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const aulaId = parseInt((request.params as { id: string }).id, 10);
+    const aula = await aulaAdministrable(aulaId, user);
+    if (!aula) return reply.code(403).send({ error: 'Este grupo no existe o no es tuyo' });
+
+    const inscripciones = await prisma.enrollment.findMany({
+      where: { aulaId },
+      orderBy: { estudiante: { nombre: 'asc' } },
+      select: {
+        estudiante: {
+          select: { id: true, nombre: true, email: true, usuario: true, pinCifrado: true, activo: true },
+        },
+      },
+    });
+
+    const secreto = secretoPin();
+    await anotarAcceso({
+      actorId: user.id,
+      accion: 'ver_credenciales',
+      recurso: `aula:${aulaId} (${inscripciones.length})`,
+      ip: request.ip,
+    });
+
+    return reply.send({
+      aula: { id: aula.id, nombre: aula.nombre },
+      puedeVerPines: hayClaveDePin(secreto),
+      credenciales: inscripciones.map(({ estudiante }) => {
+        const claro =
+          hayClaveDePin(secreto) && estudiante.pinCifrado
+            ? descifrarPin(estudiante.pinCifrado, secreto)
+            : null;
+        return {
+          id: estudiante.id,
+          nombre: estudiante.nombre,
+          email: estudiante.email,
+          usuario: estudiante.usuario,
+          activo: estudiante.activo,
+          pin: claro ? pinAImagenes(claro) : null,
+        };
+      }),
+    });
+  });
+
+  /**
+   * Cambia el PIN de varios estudiantes de una vez.
+   *
+   * Los dos casos reales del aula: el mismo PIN para todo el grupo (se escribe
+   * en el tablero y se acabó), o uno distinto al azar para cada uno cuando el
+   * grupo ya sabe cuidarlo. Sin `estudiante_ids` se aplica al aula entera.
+   *
+   * A quien no tenga nombre de jugador se le genera uno: es lo que hace falta
+   * para que pueda entrar sin escribir su correo.
+   */
+  fastify.post('/classrooms/:id/pines', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const aulaId = parseInt((request.params as { id: string }).id, 10);
+    const aula = await aulaAdministrable(aulaId, user);
+    if (!aula) return reply.code(403).send({ error: 'Este grupo no existe o no es tuyo' });
+
+    const schema = z.object({
+      // Si viene un pin, es el MISMO para todos. Si no, uno aleatorio por niño.
+      pin: z.array(z.string()).length(LONGITUD_PIN).optional(),
+      estudiante_ids: z.array(z.number()).optional(),
+    });
+    const r = schema.safeParse(request.body);
+    if (!r.success) return reply.code(400).send({ error: 'El PIN debe tener exactamente 4 dibujos' });
+    if (r.data.pin && !pinValido(r.data.pin)) {
+      return reply.code(400).send({ error: 'Alguno de esos dibujos no existe' });
+    }
+
+    const inscripciones = await prisma.enrollment.findMany({
+      where: { aulaId, ...(r.data.estudiante_ids?.length ? { estudianteId: { in: r.data.estudiante_ids } } : {}) },
+      select: { estudiante: { select: { id: true, nombre: true, usuario: true } } },
+      orderBy: { estudiante: { nombre: 'asc' } },
+    });
+    if (inscripciones.length === 0) return reply.code(400).send({ error: 'Ese grupo no tiene estudiantes' });
+
+    const secreto = secretoPin();
+    const reservados = new Set<string>();
+    const cambios: Array<{ id: number; nombre: string; usuario: string; pin: string[] }> = [];
+
+    for (const { estudiante } of inscripciones) {
+      const pin = r.data.pin ? [...r.data.pin] : pinAleatorio();
+      const { pinHash, pinCifrado } = await prepararPin(pin, secreto);
+
+      let usuario = estudiante.usuario;
+      if (!usuario) {
+        usuario = await generarUsuarioLibre(prisma, estudiante.nombre, reservados);
+        reservados.add(usuario);
+      }
+
+      await prisma.user.update({ where: { id: estudiante.id }, data: { pinHash, pinCifrado, usuario } });
+      cambios.push({ id: estudiante.id, nombre: estudiante.nombre, usuario, pin });
+    }
+
+    await anotarAcceso({
+      actorId: user.id,
+      accion: r.data.pin ? 'pin_comun' : 'pin_aleatorio',
+      recurso: `aula:${aulaId} (${cambios.length})`,
+      ip: request.ip,
+    });
+
+    return reply.send({ ok: true, puedeVerPines: hayClaveDePin(secreto), cambios });
+  });
+
+  /** Cambia el PIN de UN estudiante (el caso de "se le olvidó justo a él"). */
+  fastify.post('/students/:id/pin', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const estudianteId = parseInt((request.params as { id: string }).id, 10);
+    const permiso = await puedeAdministrarEstudiante(estudianteId, user);
+    if (!permiso.ok) return reply.code(permiso.code).send({ error: permiso.error });
+
+    const schema = z.object({ pin: z.array(z.string()).length(LONGITUD_PIN).optional() });
+    const r = schema.safeParse(request.body);
+    if (!r.success) return reply.code(400).send({ error: 'El PIN debe tener exactamente 4 dibujos' });
+    if (r.data.pin && !pinValido(r.data.pin)) {
+      return reply.code(400).send({ error: 'Alguno de esos dibujos no existe' });
+    }
+
+    const pin = r.data.pin ? [...r.data.pin] : pinAleatorio();
+    const secreto = secretoPin();
+    const { pinHash, pinCifrado } = await prepararPin(pin, secreto);
+
+    const actual = await prisma.user.findUnique({ where: { id: estudianteId }, select: { usuario: true, nombre: true } });
+    const usuario = actual?.usuario ?? (await generarUsuarioLibre(prisma, actual?.nombre ?? 'codi'));
+
+    await prisma.user.update({ where: { id: estudianteId }, data: { pinHash, pinCifrado, usuario } });
+    await anotarAcceso({
+      actorId: user.id, alumnoId: estudianteId, accion: 'pin_individual',
+      recurso: `estudiante:${estudianteId}`, ip: request.ip,
+    });
+
+    return reply.send({ ok: true, nombre: permiso.alumno.nombre, usuario, pin, puedeVerPines: hayClaveDePin(secreto) });
+  });
+
+  /** Quita el acceso por dibujos de un estudiante (vuelve a correo y contraseña). */
+  fastify.delete('/students/:id/pin', { preHandler: [fastify.authenticate] }, async (request, reply) => {
+    const user = request.user as { id: number; rol: string };
+    if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
+    const estudianteId = parseInt((request.params as { id: string }).id, 10);
+    const permiso = await puedeAdministrarEstudiante(estudianteId, user);
+    if (!permiso.ok) return reply.code(permiso.code).send({ error: permiso.error });
+
+    await prisma.user.update({ where: { id: estudianteId }, data: { pinHash: null, pinCifrado: null } });
+    await anotarAcceso({
+      actorId: user.id, alumnoId: estudianteId, accion: 'pin_retirado',
+      recurso: `estudiante:${estudianteId}`, ip: request.ip,
+    });
+    return reply.send({ ok: true });
   });
 
   // ===================== ASIGNACIONES =====================

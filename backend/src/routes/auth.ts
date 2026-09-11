@@ -13,6 +13,14 @@ import {
   ssoConfigurado,
   urlAutorizacion,
 } from '../lib/microsoft.js';
+import { IMAGENES_PIN, LONGITUD_PIN, pinValido, verificarPin } from '../lib/pin.js';
+import {
+  anotarFallo,
+  anotarFalloIp,
+  comprobarIntentos,
+  comprobarIntentosIp,
+  olvidarFallos,
+} from '../lib/intentos.js';
 
 const prisma = new PrismaClient();
 
@@ -363,5 +371,90 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     // El token viaja una sola vez por la URL; el frontend lo guarda y limpia la
     // barra de direcciones enseguida (history.replaceState).
     return reply.redirect(`${baseUrl(request as never)}/app/?sso_token=${encodeURIComponent(token)}`);
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // Acceso de los más pequeños: usuario + PIN de cuatro imágenes
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** El catálogo de dibujos, para que la pantalla los pinte en el mismo orden. */
+  fastify.get('/imagenes-pin', async (_request, reply) =>
+    reply.send({ imagenes: IMAGENES_PIN, longitud: LONGITUD_PIN }),
+  );
+
+  /**
+   * Inicio de sesión de un niño con su PIN de imágenes.
+   *
+   * La protección tiene dos capas, porque una sola no sirve:
+   *  - un contador de fallos por cuenta, para que no se pueda adivinar el PIN de
+   *    un niño concreto a base de intentos,
+   *  - y otro por IP, para frenar a quien recorre nombres de usuario probando
+   *    uno cada vez (cada cuenta acumularía un solo fallo y ninguna llegaría al
+   *    tope). Solo cuentan los fallos, así que un aula entera entrando bien
+   *    nunca los activa.
+   */
+  fastify.post('/login-nino', async (request, reply) => {
+    const schema = z.object({
+      usuario: z.string().trim().min(2).max(60).transform((u) => u.toLowerCase()),
+      pin: z.array(z.string()).length(LONGITUD_PIN),
+    });
+    const r = schema.safeParse(request.body);
+    if (!r.success) return reply.code(400).send({ error: 'Faltan el nombre de jugador o los cuatro dibujos' });
+
+    const { usuario, pin } = r.data;
+    if (!pinValido(pin)) return reply.code(400).send({ error: 'Esos dibujos no son válidos' });
+
+    const estado = comprobarIntentos(usuario);
+    if (estado.bloqueado) {
+      return reply.code(429).send({
+        error: 'Demasiados intentos',
+        mensaje: `Espera ${Math.ceil(estado.esperaSegundos / 60)} minuto(s) y vuelve a intentarlo.`,
+      });
+    }
+    const estadoRed = comprobarIntentosIp(request.ip);
+    if (estadoRed.bloqueado) {
+      return reply.code(429).send({
+        error: 'Demasiados intentos desde esta red',
+        mensaje: 'Pide ayuda a tu profe o a un adulto.',
+      });
+    }
+
+    const nino = await prisma.user.findUnique({
+      where: { usuario },
+      select: {
+        id: true, email: true, nombre: true, rol: true, bandaEdad: true, modalidadPref: true,
+        avatarConfig: true, monedas: true, gemas: true, rachaDias: true, institucionId: true,
+        consentimientoTutor: true, activo: true, pinHash: true,
+      },
+    });
+
+    // El mismo mensaje si el usuario no existe o si el PIN no coincide: así no
+    // se revela qué cuentas existen.
+    const generico = { error: 'Ese nombre o esos dibujos no coinciden' };
+    if (!nino?.pinHash || nino.rol !== 'estudiante' || !nino.activo) {
+      anotarFallo(usuario);
+      anotarFalloIp(request.ip);
+      return reply.code(401).send(generico);
+    }
+
+    if (!(await verificarPin(pin, nino.pinHash))) {
+      const tras = anotarFallo(usuario);
+      anotarFalloIp(request.ip);
+      if (tras.bloqueado) {
+        return reply.code(429).send({
+          error: 'Demasiados intentos',
+          mensaje: 'Pide ayuda a un adulto para recordar tus dibujos.',
+        });
+      }
+      return reply.code(401).send(generico);
+    }
+
+    // Acceso correcto: se olvidan los fallos anteriores.
+    olvidarFallos(usuario);
+    await prisma.user.update({ where: { id: nino.id }, data: { ultimaActividad: new Date() } });
+
+    const token = fastify.jwt.sign({ id: nino.id, email: nino.email, rol: nino.rol, nombre: nino.nombre });
+    const { pinHash, ...usuarioSinPin } = nino;
+    return reply.send({ token, user: usuarioSinPin });
   });
 };

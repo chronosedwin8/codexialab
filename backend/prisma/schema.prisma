@@ -68,6 +68,14 @@ model User {
   id                    Int              @id @default(autoincrement())
   email                 String           @unique @db.VarChar(255)
   passwordHash          String           @map("password_hash") @db.VarChar(255)
+  /// Nombre de acceso de los prelectores: entran con `usuario` + PIN de
+  /// imagenes, sin correo ni contrasena escrita. Null en cuentas normales.
+  usuario               String?          @unique @db.VarChar(60)
+  /// Hash bcrypt del PIN de imagenes. Es lo unico contra lo que se valida.
+  pinHash               String?          @map("pin_hash") @db.VarChar(255)
+  /// Copia del PIN cifrada con AES-256-GCM (ver lib/pinVisible.ts). Existe para
+  /// que el docente pueda recordarselo al nino; NO sirve para entrar.
+  pinCifrado            String?          @map("pin_cifrado") @db.VarChar(255)
   nombre                String           @db.VarChar(150)
   rol                   RolUsuario       @default(estudiante)
   bandaEdad             BandaEdad?       @map("banda_edad")
@@ -250,6 +258,20 @@ model Achievement {
   usuarios    UserAchievement[]
 
   @@map("logros")
+}
+
+/// Quien consulta credenciales de menores queda anotado aqui.
+model AccessAudit {
+  id        Int      @id @default(autoincrement())
+  actorId   Int?     @map("actor_id")
+  alumnoId  Int?     @map("alumno_id")
+  accion    String   @db.VarChar(60)
+  recurso   String   @db.VarChar(200)
+  ip        String?  @db.VarChar(60)
+  creadoEn  DateTime @default(now()) @map("creado_en") @db.Timestamptz()
+
+  @@index([creadoEn(sort: Desc)])
+  @@map("auditoria_accesos")
 }
 
 model UserAchievement {

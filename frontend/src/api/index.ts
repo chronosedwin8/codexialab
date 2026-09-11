@@ -48,6 +48,11 @@ export const authApi = {
     const res = await api.post('/auth/login', { email, password });
     return res.data;
   },
+  // Acceso de prelectores: nombre de jugador + PIN de cuatro dibujos.
+  loginNino: async (usuario: string, pin: string[]) => {
+    const res = await api.post('/auth/login-nino', { usuario, pin });
+    return res.data;
+  },
   // Acceso a Preescolar sin login (niños sin correo): devuelve token de cuenta invitada
   preescolar: async () => {
     const res = await api.post('/auth/preescolar');
@@ -200,6 +205,15 @@ export const teacherApi = {
   getStudentDeleteImpact: async (id: number) => (await api.get(`/teacher/students/${id}/impacto-borrado`)).data,
   deleteStudent: async (id: number) => (await api.delete(`/teacher/students/${id}`)).data,
   deleteTeacher: async (id: number) => (await api.delete(`/teacher/teachers/${id}`)).data,
+  // PIN de imágenes (prelectores)
+  getImagenesPin: async () => (await api.get('/teacher/imagenes-pin')).data,
+  getCredenciales: async (classroomId: number) =>
+    (await api.get(`/teacher/classrooms/${classroomId}/credenciales`)).data,
+  setPinesGrupo: async (classroomId: number, payload: { pin?: string[]; estudiante_ids?: number[] }) =>
+    (await api.post(`/teacher/classrooms/${classroomId}/pines`, payload)).data,
+  setPinEstudiante: async (id: number, pin?: string[]) =>
+    (await api.post(`/teacher/students/${id}/pin`, pin ? { pin } : {})).data,
+  quitarPinEstudiante: async (id: number) => (await api.delete(`/teacher/students/${id}/pin`)).data,
   // Sedes
   getSedes: async () => (await api.get('/teacher/sedes')).data,
   createSede: async (payload: { nombre: string; ciudad?: string }) => (await api.post('/teacher/sedes', payload)).data,

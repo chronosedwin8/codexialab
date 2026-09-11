@@ -87,6 +87,12 @@
             <button class="btn-block" @click="bloquearGrupo(true)">🔒 Bloquear grupo</button>
             <button class="btn-ok-sm" @click="bloquearGrupo(false)">🔓 Desbloquear</button>
             <button class="btn-pass" @click="abrirResetPass">🔑 Cambiar contraseña</button>
+            <button
+              v-if="puedeAdministrar(selectedClassroom)"
+              class="btn-dibujos"
+              title="Acceso con dibujos para los que aún no leen"
+              @click="showCredenciales = true"
+            >🎨 Acceso con dibujos</button>
             <select v-model="filterWorld" class="filter-select" title="Filtra la tabla de progreso (no asigna)">
               <option value="">Filtrar: todos los mundos</option>
               <option v-for="w in worlds" :key="w.id" :value="w.id">Mundo {{ w.numero_orden }}: {{ w.nombre }}</option>
@@ -639,6 +645,13 @@
       </div>
     </div>
 
+    <!-- Credenciales de acceso con dibujos (prelectores) -->
+    <PanelCredenciales
+      v-if="showCredenciales && selectedClassroom"
+      :aula="{ id: selectedClassroom.id, nombre: selectedClassroom.nombre }"
+      @cerrar="showCredenciales = false"
+    />
+
     <!-- Modal editar grupo -->
     <div v-if="showEditGroupModal" class="modal-overlay" @click.self="showEditGroupModal = false">
       <div class="modal">
@@ -1027,6 +1040,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { teacherApi, curriculumApi, mensajeError } from '@/api/index';
+import PanelCredenciales from '@/components/PanelCredenciales.vue';
 import { MATERIAS } from '@/data/materias';
 
 const authStore = useAuthStore();
@@ -1316,6 +1330,9 @@ function puedeAdministrar(aula: any): boolean {
   if (!aula) return false;
   return esAdmin.value || aula.esMio !== false;
 }
+
+/** Panel de acceso con dibujos del grupo abierto. */
+const showCredenciales = ref(false);
 
 // --- Editar grupo ---
 const showEditGroupModal = ref(false);
@@ -2344,6 +2361,8 @@ table.matriz thead th.col-total { z-index: 4; }
 .btn-block { background: #FEE2E2; color: #B91C1C; border: 1px solid #FCA5A5; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
 .btn-pass { background: #FEF3C7; color: #92400E; border: 1px solid #FDE68A; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
 .btn-pass:hover { background: #FDE68A; }
+.btn-dibujos { background: #EDE9FE; color: #5B21B6; border: 1px solid #C4B5FD; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
+.btn-dibujos:hover { background: #DDD6FE; }
 .btn-ok-sm { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
 .stat-filtros { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .stat-filtros .filter-select { font-size: 0.9rem; padding: 0.5rem 0.8rem; }
