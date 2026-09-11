@@ -251,6 +251,26 @@ export const teacherApi = {
   getStats3: async (aulaId?: number) => (await api.get('/teacher/stats3', { params: { aula_id: aulaId } })).data,
 };
 
+// Administración: control total de las cuentas del sistema (solo rol admin).
+export const adminApi = {
+  getResumen: async () => (await api.get('/admin/resumen')).data,
+  getUsuarios: async (filtros?: { q?: string; rol?: string; limite?: number }) =>
+    (await api.get('/admin/usuarios', { params: filtros })).data,
+  getUsuario: async (id: number) => (await api.get(`/admin/usuarios/${id}`)).data,
+  crearUsuario: async (payload: {
+    nombre: string; email: string; password: string; rol: string;
+    banda_edad?: string; institucion_id?: number | null;
+  }) => (await api.post('/admin/usuarios', payload)).data,
+  editarUsuario: async (id: number, payload: {
+    nombre?: string; email?: string; rol?: string;
+    banda_edad?: string | null; institucion_id?: number | null; activo?: boolean;
+  }) => (await api.patch(`/admin/usuarios/${id}`, payload)).data,
+  cambiarPassword: async (id: number, password: string) =>
+    (await api.post(`/admin/usuarios/${id}/password`, { password })).data,
+  eliminarUsuario: async (id: number) => (await api.delete(`/admin/usuarios/${id}`)).data,
+  getAuditoria: async (limite = 100) => (await api.get('/admin/auditoria', { params: { limite } })).data,
+};
+
 // Zona de Juegos: ranking compartido + records con fecha/hora
 export const juegosApi = {
   top: async (juego: string, limit = 5) => (await api.get(`/juegos/${juego}/top`, { params: { limit } })).data,

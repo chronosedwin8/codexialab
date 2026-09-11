@@ -9,6 +9,7 @@ import { sessionRoutes } from './routes/sessions.js';
 import { submissionRoutes } from './routes/submissions.js';
 import { storeRoutes } from './routes/store.js';
 import { teacherRoutes } from './routes/teacher.js';
+import { adminRoutes } from './routes/admin.js';
 import { juegosRoutes } from './routes/juegos.js';
 import { pagosRoutes } from './routes/pagos.js';
 import fastifyStatic from '@fastify/static';
@@ -85,6 +86,7 @@ async function bootstrap() {
   await server.register(submissionRoutes, { prefix: '/api/submissions' });
   await server.register(storeRoutes, { prefix: '/api/store' });
   await server.register(teacherRoutes, { prefix: '/api/teacher' });
+  await server.register(adminRoutes, { prefix: '/api/admin' });
   await server.register(juegosRoutes, { prefix: '/api/juegos' });
   await server.register(pagosRoutes, { prefix: '/api/pagos' });
 

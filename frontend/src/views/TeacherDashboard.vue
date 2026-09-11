@@ -295,6 +295,10 @@
     </section>
 
     <!-- ===================== SEDES ===================== -->
+    <section v-show="activeTab === 'admin'" class="tab-panel">
+      <PanelAdmin v-if="activeTab === 'admin'" />
+    </section>
+
     <section v-show="activeTab === 'sedes'" class="tab-panel">
       <p class="panel-hint">
         Una <b>sede</b> es un campus o jornada del colegio. Sirve para <b>agrupar grupos y estudiantes</b> cuando hay más de una:
@@ -352,13 +356,21 @@
 
     <!-- ===================== PROFESORES ===================== -->
     <section v-show="activeTab === 'profesores'" class="tab-panel">
-      <p class="panel-hint">Crea otros profesores. Tendrán las <b>mismas capacidades</b> que tú: crear grupos y estudiantes, asignar y ver estadísticas.</p>
+      <p class="panel-hint">
+        Crea otros profesores. Tendrán las <b>mismas capacidades</b> que tú sobre sus grupos: crearlos, agregar estudiantes,
+        asignar y ver estadísticas. Aquí se listan también los <b>administradores</b>, que además pueden con todo el colegio.
+        <template v-if="esAdmin"> Para cambiar contraseñas o roles, usa la pestaña 🛡️ Administración.</template>
+      </p>
       <div class="cards-grid">
         <div v-for="t in teachers" :key="t.id" class="info-card">
-          <div class="info-card-icon">👩‍🏫</div>
+          <div class="info-card-icon">{{ t.rol === 'admin' ? '🛡️' : '👩‍🏫' }}</div>
           <div style="flex:1">
-            <p class="info-card-title">{{ t.nombre }}</p>
+            <p class="info-card-title">
+              {{ t.nombre }}
+              <span v-if="t.rol === 'admin'" class="rol-chip">Administrador</span>
+            </p>
             <p class="info-card-meta">{{ t.email }}</p>
+            <p class="info-card-meta">{{ t.grupos ?? 0 }} grupo(s) a su cargo</p>
           </div>
           <span :class="['estado-badge', t.activo === false ? 'bloq' : 'ok']">{{ t.activo === false ? '🔒' : '✅' }}</span>
           <div v-if="esAdmin && t.id !== miId" class="card-acciones">
@@ -1041,6 +1053,7 @@ import { ref, computed, onMounted } from 'vue';
 import { useAuthStore } from '@/stores/auth';
 import { teacherApi, curriculumApi, mensajeError } from '@/api/index';
 import PanelCredenciales from '@/components/PanelCredenciales.vue';
+import PanelAdmin from '@/components/PanelAdmin.vue';
 import { MATERIAS } from '@/data/materias';
 
 const authStore = useAuthStore();
@@ -1058,7 +1071,7 @@ const newClassroomBanda = ref('aventureros');
 const createResultado = ref<any>(null);
 
 // Pestañas
-const tabs = [
+const tabs = computed(() => [
   { id: 'grupos', label: 'Grupos y Progreso', icono: '🏫' },
   { id: 'seguimiento', label: 'Seguimiento', icono: '📈' },
   { id: 'estudiantes', label: 'Estudiantes', icono: '🧑‍🎓' },
@@ -1066,7 +1079,9 @@ const tabs = [
   { id: 'sedes', label: 'Sedes', icono: '🏢' },
   { id: 'asignaciones', label: 'Asignaciones', icono: '📋' },
   { id: 'estadisticas', label: 'Estadísticas', icono: '📊' },
-];
+  // Control total de las cuentas: solo para administradores.
+  ...(esAdmin.value ? [{ id: 'admin', label: 'Administración', icono: '🛡️' }] : []),
+]);
 const activeTab = ref('grupos');
 
 // Sedes
@@ -2363,6 +2378,7 @@ table.matriz thead th.col-total { z-index: 4; }
 .btn-pass:hover { background: #FDE68A; }
 .btn-dibujos { background: #EDE9FE; color: #5B21B6; border: 1px solid #C4B5FD; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
 .btn-dibujos:hover { background: #DDD6FE; }
+.rol-chip { margin-left: 0.4rem; padding: 0.12rem 0.5rem; border-radius: 999px; background: #FEF3C7; color: #92400E; font-size: 0.68rem; font-weight: 800; vertical-align: middle; }
 .btn-ok-sm { background: #DCFCE7; color: #15803D; border: 1px solid #86EFAC; border-radius: 8px; padding: 0.4rem 0.7rem; font-size: 0.8rem; font-weight: 700; cursor: pointer; font-family: inherit; }
 .stat-filtros { display: flex; gap: 0.6rem; flex-wrap: wrap; margin-bottom: 1rem; }
 .stat-filtros .filter-select { font-size: 0.9rem; padding: 0.5rem 0.8rem; }

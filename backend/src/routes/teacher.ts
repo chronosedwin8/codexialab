@@ -1408,8 +1408,15 @@ export const teacherRoutes: FastifyPluginAsync = async (fastify: FastifyInstance
   fastify.get('/teachers', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const user = request.user as { rol: string };
     if (!esDocente(user)) return reply.code(403).send({ error: 'Solo docentes' });
-    const teachers = await prisma.user.findMany({ where: { rol: 'docente' }, select: { id: true, nombre: true, email: true, activo: true }, orderBy: { nombre: 'asc' } });
-    return reply.send({ teachers });
+    // Se incluyen los ADMINISTRADORES: antes solo salían los de rol 'docente',
+    // así que al intentar crear a un admin que ya existía el sistema decía "ya
+    // existe" y la lista no lo mostraba por ninguna parte.
+    const teachers = await prisma.user.findMany({
+      where: { rol: { in: ['docente', 'admin'] } },
+      select: { id: true, nombre: true, email: true, activo: true, rol: true, _count: { select: { aulas: true } } },
+      orderBy: [{ rol: 'asc' }, { nombre: 'asc' }],
+    });
+    return reply.send({ teachers: teachers.map((t) => ({ ...t, grupos: t._count.aulas })) });
   });
   fastify.post('/teachers', { preHandler: [fastify.authenticate] }, async (request, reply) => {
     const user = request.user as { rol: string };
