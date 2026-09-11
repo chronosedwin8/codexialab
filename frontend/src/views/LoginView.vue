@@ -31,6 +31,23 @@
           {{ isLoading ? 'Entrando...' : '¡Entrar a Codexia! 🚀' }}
         </button>
 
+        <!-- SSO institucional: los estudiantes del colegio entran con su cuenta Microsoft -->
+        <template v-if="ssoDisponible">
+          <div class="sso-sep"><span>o</span></div>
+          <button type="button" class="btn-microsoft" :disabled="isLoading || ssoEntrando" @click="entrarConMicrosoft">
+            <svg class="ms-logo" viewBox="0 0 23 23" aria-hidden="true">
+              <rect x="1" y="1" width="10" height="10" fill="#F25022" />
+              <rect x="12" y="1" width="10" height="10" fill="#7FBA00" />
+              <rect x="1" y="12" width="10" height="10" fill="#00A4EF" />
+              <rect x="12" y="12" width="10" height="10" fill="#FFB900" />
+            </svg>
+            <span>{{ ssoEntrando ? 'Abriendo Microsoft…' : 'Entrar con mi cuenta del colegio' }}</span>
+          </button>
+          <p v-if="ssoDominios.length" class="sso-nota">
+            Usa tu correo <strong>@{{ ssoDominios[0] }}</strong>
+          </p>
+        </template>
+
         <div class="demo-credentials">
           <p>Demo rápido:</p>
           <button type="button" class="btn-secondary btn-sm" @click="fillDemo('estudiante')">
@@ -119,12 +136,76 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '@/stores/auth';
+import { authApi } from '@/api';
 
 const router = useRouter();
 const authStore = useAuthStore();
+
+// ── SSO Microsoft (cuentas institucionales) ──
+const ssoDisponible = ref(false);
+const ssoDominios = ref<string[]>([]);
+const ssoEntrando = ref(false);
+
+const SSO_ERRORES: Record<string, string> = {
+  dominio: 'Esa cuenta de Microsoft no es del colegio. Entra con tu correo institucional.',
+  cancelado: 'Cancelaste el inicio de sesión con Microsoft.',
+  sin_cuenta: 'Tu cuenta de Microsoft es válida, pero todavía no tienes acceso a Codexia. Pídeselo a tu profesor.',
+  bloqueado: 'Tu cuenta está bloqueada. Habla con tu profesor.',
+  validacion: 'No pudimos validar tu identidad con Microsoft. Inténtalo de nuevo.',
+  state_invalido: 'El intento de ingreso caducó. Vuelve a pulsar el botón de Microsoft.',
+  respuesta_incompleta: 'Microsoft devolvió una respuesta incompleta. Inténtalo de nuevo.',
+  no_configurado: 'El ingreso con Microsoft no está habilitado en este servidor.',
+  microsoft: 'Microsoft rechazó el inicio de sesión. Inténtalo de nuevo.',
+};
+
+function entrarConMicrosoft(): void {
+  ssoEntrando.value = true;
+  // Navegación completa (no fetch): el flujo OAuth ocurre en el navegador.
+  window.location.href = '/api/auth/microsoft';
+}
+
+/** Quita de la barra de direcciones los parámetros del SSO. */
+function limpiarUrl(): void {
+  const u = new URL(window.location.href);
+  u.searchParams.delete('sso_token');
+  u.searchParams.delete('sso_error');
+  window.history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
+}
+
+onMounted(async () => {
+  const params = new URLSearchParams(window.location.search);
+  const tokenSso = params.get('sso_token');
+  const errorSso = params.get('sso_error');
+
+  if (errorSso) {
+    loginError.value = SSO_ERRORES[errorSso] ?? 'No se pudo iniciar sesión con Microsoft.';
+    limpiarUrl();
+  } else if (tokenSso) {
+    // El token solo pasa por la URL una vez: se guarda y se borra del historial.
+    limpiarUrl();
+    isLoading.value = true;
+    try {
+      await authStore.loginConToken(tokenSso);
+      router.push(authStore.user?.rol === 'docente' || authStore.user?.rol === 'admin' ? '/docente' : '/mapa');
+      return;
+    } catch {
+      loginError.value = 'Tu sesión de Microsoft no pudo abrirse. Inténtalo de nuevo.';
+    } finally {
+      isLoading.value = false;
+    }
+  }
+
+  try {
+    const estado = await authApi.ssoMicrosoftEstado();
+    ssoDisponible.value = estado.disponible;
+    ssoDominios.value = estado.dominios ?? [];
+  } catch {
+    ssoDisponible.value = false; // sin SSO el login normal sigue funcionando
+  }
+});
 
 const activeTab = ref<'login' | 'register'>('login');
 const isLoading = ref(false);
@@ -368,6 +449,52 @@ async function handleRegister() {
   font-size: 0.9rem;
   margin: 0;
 }
+
+.sso-sep {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 1.1rem 0 0.9rem;
+  color: rgba(255, 255, 255, 0.45);
+  font-size: 0.8rem;
+}
+.sso-sep::before,
+.sso-sep::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.18);
+}
+.btn-microsoft {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
+  padding: 0.85rem 1rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  background: #fff;
+  color: #1f2937;
+  font-family: inherit;
+  font-size: 1rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
+}
+.btn-microsoft:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.28);
+}
+.btn-microsoft:disabled { opacity: 0.6; cursor: not-allowed; }
+.ms-logo { width: 20px; height: 20px; flex-shrink: 0; }
+.sso-nota {
+  margin: 0.6rem 0 0;
+  text-align: center;
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.6);
+}
+.sso-nota strong { color: rgba(255, 255, 255, 0.85); }
 
 .demo-credentials {
   text-align: center;

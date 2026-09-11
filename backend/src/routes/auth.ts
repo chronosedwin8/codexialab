@@ -1,7 +1,18 @@
 import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
+import { randomUUID } from 'node:crypto';
 import { PrismaClient } from '@prisma/client';
+import {
+  AUTO_CREAR,
+  canjearCodigo,
+  dominioPermitido,
+  dominiosPermitidos,
+  leerIdToken,
+  redirectUri,
+  ssoConfigurado,
+  urlAutorizacion,
+} from '../lib/microsoft.js';
 
 const prisma = new PrismaClient();
 
@@ -240,5 +251,117 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     });
 
     return reply.send({ ok: true, message: 'Consentimiento registrado correctamente (Ley 1581 Colombia)' });
+  });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // SSO con Microsoft Entra ID (cuentas institucionales del colegio)
+  // ─────────────────────────────────────────────────────────────────────────
+
+  /** Base pública del sitio; con ella se arma la redirect_uri registrada en Azure. */
+  function baseUrl(request: { protocol: string; hostname: string; headers: Record<string, unknown> }): string {
+    const configurada = (process.env.PUBLIC_BASE_URL ?? '').trim().replace(/\/+$/, '');
+    if (configurada) return configurada;
+    // Detrás del proxy de Coolify el protocolo real viaja en x-forwarded-proto.
+    const proto = String(request.headers['x-forwarded-proto'] ?? request.protocol ?? 'http').split(',')[0];
+    const host = String(request.headers['x-forwarded-host'] ?? request.headers.host ?? request.hostname);
+    return `${proto}://${host}`;
+  }
+
+  /** ¿Está el SSO disponible? Lo consulta el frontend para mostrar o no el botón. */
+  fastify.get('/microsoft/estado', async (_request, reply) =>
+    reply.send({ disponible: ssoConfigurado(), dominios: dominiosPermitidos() }),
+  );
+
+  // Paso 1: manda al usuario a iniciar sesión en Microsoft.
+  fastify.get('/microsoft', async (request, reply) => {
+    if (!ssoConfigurado()) {
+      return reply.code(503).send({ error: 'El inicio de sesión con Microsoft no está configurado en este servidor' });
+    }
+
+    const nonce = randomUUID();
+    // El state va FIRMADO y con vencimiento corto: así se verifica que la
+    // respuesta de Microsoft corresponde a una petición nuestra (anti-CSRF) y
+    // se transporta el nonce sin necesidad de cookies ni estado en memoria
+    // (el servidor puede reiniciarse o haber varias instancias).
+    const state = fastify.jwt.sign({ nonce, sso: 'ms' }, { expiresIn: '10m' });
+
+    return reply.redirect(
+      urlAutorizacion({ state, nonce, redirectUri: redirectUri(baseUrl(request as never)) }),
+    );
+  });
+
+  // Paso 2: Microsoft devuelve el código aquí. Esta URL es la que se registra en Azure.
+  fastify.get('/microsoft/callback', async (request, reply) => {
+    const q = request.query as Record<string, string | undefined>;
+    const destino = (motivo: string) => `${baseUrl(request as never)}/app/?sso_error=${encodeURIComponent(motivo)}`;
+
+    if (!ssoConfigurado()) return reply.redirect(destino('no_configurado'));
+
+    // Microsoft informa los errores del usuario (canceló, sin consentimiento…) por query.
+    if (q.error) {
+      request.log.warn({ error: q.error, desc: q.error_description }, 'SSO Microsoft devolvió error');
+      return reply.redirect(destino(q.error === 'access_denied' ? 'cancelado' : 'microsoft'));
+    }
+    if (!q.code || !q.state) return reply.redirect(destino('respuesta_incompleta'));
+
+    let nonce: string;
+    try {
+      const st = fastify.jwt.verify(q.state) as { nonce?: string; sso?: string };
+      if (st.sso !== 'ms' || !st.nonce) throw new Error('state ajeno');
+      nonce = st.nonce;
+    } catch {
+      return reply.redirect(destino('state_invalido'));
+    }
+
+    let perfil;
+    try {
+      const { id_token } = await canjearCodigo(q.code, redirectUri(baseUrl(request as never)));
+      perfil = leerIdToken(id_token, nonce);
+    } catch (e) {
+      request.log.error({ err: e }, 'Falló el canje/validación del SSO de Microsoft');
+      return reply.redirect(destino('validacion'));
+    }
+
+    if (!dominioPermitido(perfil.email)) {
+      request.log.warn({ email: perfil.email }, 'SSO rechazado: dominio no institucional');
+      return reply.redirect(destino('dominio'));
+    }
+
+    // Se busca por correo: los estudiantes importados de Phidias ya tienen su
+    // correo institucional, así que entran a SU cuenta con su progreso y grupo.
+    let user = await prisma.user.findUnique({
+      where: { email: perfil.email },
+      select: { id: true, email: true, nombre: true, rol: true, activo: true },
+    });
+
+    if (!user) {
+      if (!AUTO_CREAR) return reply.redirect(destino('sin_cuenta'));
+      // Cuenta nueva: entra como estudiante. La clave es aleatoria porque esta
+      // cuenta se usa por SSO; no hay contraseña que el estudiante deba saber.
+      const passwordHash = await bcrypt.hash(`ms-sso-${randomUUID()}`, 10);
+      user = await prisma.user.create({
+        data: {
+          email: perfil.email,
+          nombre: perfil.nombre,
+          passwordHash,
+          rol: 'estudiante',
+          bandaEdad: 'aventureros',
+          consentimientoTutor: true, // cuenta institucional gestionada por el colegio
+          activo: true,
+        },
+        select: { id: true, email: true, nombre: true, rol: true, activo: true },
+      });
+      request.log.info({ email: perfil.email }, 'SSO Microsoft: cuenta de estudiante creada');
+    }
+
+    if (!user.activo) return reply.redirect(destino('bloqueado'));
+
+    await prisma.user.update({ where: { id: user.id }, data: { ultimaActividad: new Date() } });
+
+    const token = fastify.jwt.sign({ id: user.id, email: user.email, rol: user.rol, nombre: user.nombre });
+
+    // El token viaja una sola vez por la URL; el frontend lo guarda y limpia la
+    // barra de direcciones enseguida (history.replaceState).
+    return reply.redirect(`${baseUrl(request as never)}/app/?sso_token=${encodeURIComponent(token)}`);
   });
 };

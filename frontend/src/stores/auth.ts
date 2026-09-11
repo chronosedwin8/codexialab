@@ -134,6 +134,21 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  // Entrada por SSO de Microsoft: el backend ya validó la identidad y nos
+  // devolvió un token de Codexia; con él se piden los datos del usuario.
+  async function loginConToken(nuevoToken: string) {
+    token.value = nuevoToken;
+    persistState();
+    try {
+      await fetchMe();
+    } catch (e) {
+      // Token inservible: no dejar una sesión a medias.
+      logout();
+      throw e;
+    }
+    return user.value;
+  }
+
   function logout() {
     user.value = null;
     token.value = null;
@@ -146,6 +161,7 @@ export const useAuthStore = defineStore('auth', () => {
     token,
     isAuthenticated,
     login,
+    loginConToken,
     logout,
     register,
     ensurePreescolar,

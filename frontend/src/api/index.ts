@@ -56,6 +56,12 @@ export const authApi = {
     const res = await api.post('/auth/consent', payload);
     return res.data;
   },
+  // SSO Microsoft: el frontend solo pregunta si esta disponible; el resto del
+  // flujo son redirecciones del navegador contra el backend.
+  ssoMicrosoftEstado: async (): Promise<{ disponible: boolean; dominios: string[] }> => {
+    const res = await api.get('/auth/microsoft/estado');
+    return res.data;
+  },
   updateAvatar: async (avatarConfig: object) => {
     const res = await api.put('/store/avatar', { avatar_config: avatarConfig });
     return res.data;
