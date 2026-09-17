@@ -40,6 +40,11 @@
     document.getElementById('payAmount').textContent = formatCOP(precios[plan]);
   }
 
+  function restaurarBoton() {
+    payBtn.disabled = false;
+    payBtn.textContent = 'Pagar ' + formatCOP(precios[plan]);
+  }
+
   function showError(text) {
     msg.className = 'msg err';
     msg.textContent = text;
@@ -57,6 +62,12 @@
       .then(function (r) { return r.json(); })
       .then(function (cfg) {
         if (cfg.precios) { precios = cfg.precios; pintarResumen(); }
+        var datosPlan = (cfg.planes || []).filter(function (p) { return p.clave === plan; })[0];
+        if (datosPlan && datosPlan.disponible === false) {
+          showError('Este plan no está disponible en este momento. Revisa los otros planes.');
+          payBtn.disabled = true;
+          return;
+        }
         if (!cfg.publicKey) { showError('La pasarela de pago no está configurada. Contacta a soporte.'); return; }
         if (typeof MercadoPago === 'undefined') { showError('No se pudo cargar la pasarela de pago. Revisa tu conexión.'); return; }
         mp = new MercadoPago(cfg.publicKey, { locale: 'es-CO' });
@@ -74,6 +85,32 @@
   exp.addEventListener('input', function () {
     var v = exp.value.replace(/\D/g, '').slice(0, 4);
     exp.value = v.length > 2 ? v.slice(0, 2) + '/' + v.slice(2) : v;
+  });
+
+  // ── Cuotas: se consultan a Mercado Pago según la tarjeta y el monto ──
+  var selCuotas = document.getElementById('installments');
+  var ultimoBinCuotas = '';
+  function cargarCuotas(bin) {
+    if (!mp || bin.length < 6 || bin === ultimoBinCuotas) return;
+    ultimoBinCuotas = bin;
+    mp.getInstallments({ amount: String(precios[plan]), bin: bin, paymentTypeId: 'credit_card' })
+      .then(function (res) {
+        var opciones = (res && res[0] && res[0].payer_costs) || [];
+        if (!opciones.length) { selCuotas.innerHTML = '<option value="1">1</option>'; return; }
+        selCuotas.innerHTML = opciones.map(function (o) {
+          var etiqueta = o.recommended_message || (o.installments + (o.installments === 1 ? ' cuota' : ' cuotas'));
+          return '<option value="' + o.installments + '">' + etiqueta + '</option>';
+        }).join('');
+      })
+      .catch(function () {
+        // Tarjeta débito o sin cuotas: se paga de contado.
+        selCuotas.innerHTML = '<option value="1">1</option>';
+      });
+  }
+  cardNumber.addEventListener('input', function () {
+    var digitos = cardNumber.value.replace(/\D/g, '');
+    if (digitos.length >= 8) cargarCuotas(digitos.slice(0, 8));
+    else if (digitos.length < 6) { ultimoBinCuotas = ''; selCuotas.innerHTML = '<option value="1">1</option>'; }
   });
 
   // Detecta el medio de pago (visa/master/...) a partir del BIN de la tarjeta.
@@ -156,28 +193,32 @@
           if (b.token) localStorage.setItem('bs_token', b.token);
           if (b.user) localStorage.setItem('bs_user', JSON.stringify(b.user));
           var qs = new URLSearchParams({ plan: plan });
+          if (b.renovacion) qs.set('renovacion', '1');
           if (b.codigoInstitucion) qs.set('inst', b.codigoInstitucion);
           if (b.codigoAula) qs.set('aula', b.codigoAula);
           location.href = 'gracias.html?' + qs.toString();
           return;
         }
         if (b.status === 'in_process' || b.status === 'pending') {
-          showInfo(b.mensaje || 'Tu pago está en revisión. Te avisaremos por correo al aprobarse.');
-          payBtn.disabled = false;
-          payBtn.innerHTML = 'Pagar ' + formatCOP(precios[plan]);
+          showInfo(b.mensaje || 'Tu pago está en revisión en Mercado Pago.');
+          // No se reactiva el botón: volver a pagar ahora podría cobrar dos veces.
+          payBtn.textContent = 'Pago en revisión';
           return;
         }
         showError(b.error || 'El pago fue rechazado. Verifica los datos de tu tarjeta e intenta de nuevo.');
-        payBtn.disabled = false;
-        payBtn.innerHTML = 'Pagar <span>' + formatCOP(precios[plan]) + '</span>';
+        if (b.codigo === 'cuenta_existente') {
+          // Ya tiene cuenta: debe usar SU contraseña para renovar, no una nueva.
+          form.password.value = '';
+          form.password.focus();
+        }
+        restaurarBoton();
       })
       .catch(function (err) {
         var detail = '';
         if (err && err.length && err[0] && err[0].message) detail = ' (' + err[0].message + ')';
         else if (err && err.message) detail = ' (' + err.message + ')';
         showError('No pudimos procesar el pago' + detail + '. Verifica los datos de tu tarjeta.');
-        payBtn.disabled = false;
-        payBtn.innerHTML = 'Pagar ' + formatCOP(precios[plan]);
+        restaurarBoton();
       });
   });
 

@@ -26,6 +26,14 @@ api.interceptors.response.use(
       localStorage.removeItem('bs_user');
       window.location.href = '/app';
     }
+    // 402: la cuenta es válida pero su licencia no está vigente (vencida o en
+    // revisión). Se cierra la sesión y se vuelve al acceso explicando el motivo.
+    if (error.response?.status === 402 && hasToken && !isLoginEndpoint) {
+      localStorage.removeItem('bs_token');
+      localStorage.removeItem('bs_user');
+      const motivo = encodeURIComponent(error.response?.data?.motivo ?? 'sin_licencia_activa');
+      window.location.href = `/app/?licencia=${motivo}`;
+    }
     return Promise.reject(error.response?.data ?? error);
   }
 );
@@ -269,6 +277,13 @@ export const adminApi = {
     (await api.post(`/admin/usuarios/${id}/password`, { password })).data,
   eliminarUsuario: async (id: number) => (await api.delete(`/admin/usuarios/${id}`)).data,
   getAuditoria: async (limite = 100) => (await api.get('/admin/auditoria', { params: { limite } })).data,
+  // Planes y pagos
+  getPlanes: async () => (await api.get('/admin/planes')).data,
+  editarPlan: async (clave: string, payload: { precio_cop?: number; activo?: boolean; nombre?: string }) =>
+    (await api.patch(`/admin/planes/${clave}`, payload)).data,
+  getPagos: async (limite = 50) => (await api.get('/admin/pagos', { params: { limite } })).data,
+  // Habla con Mercado Pago de verdad: puede tardar unos segundos.
+  getDiagnosticoPagos: async () => (await api.get('/admin/pagos/diagnostico', { timeout: 30000 })).data,
 };
 
 // Zona de Juegos: ranking compartido + records con fecha/hora

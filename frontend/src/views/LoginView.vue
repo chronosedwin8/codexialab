@@ -35,6 +35,7 @@
           <input v-model="loginForm.password" type="password" placeholder="••••••••" required />
         </div>
         <p v-if="loginError" class="error-msg">{{ loginError }}</p>
+        <a v-if="ofrecerRenovar" class="btn-renovar" href="/planes.html">💳 Renovar mi licencia</a>
         <button type="submit" class="btn-primary btn-full" :disabled="isLoading">
           {{ isLoading ? 'Entrando...' : '¡Entrar a Codexia! 🚀' }}
         </button>
@@ -158,6 +159,14 @@ const ssoDisponible = ref(false);
 const ssoDominios = ref<string[]>([]);
 const ssoEntrando = ref(false);
 
+/** Motivos por los que una cuenta comprada no puede entrar (respuesta 402). */
+const MOTIVOS_LICENCIA: Record<string, string> = {
+  licencia_vencida: 'Tu licencia de Codexia venció. Renuévala para seguir aprendiendo.',
+  pago_en_revision: 'Tu pago está en revisión en Mercado Pago. Podrás entrar apenas se apruebe; suele tardar unos minutos.',
+  sin_licencia_activa: 'Tu cuenta no tiene una licencia activa. Completa la compra para entrar.',
+};
+const ofrecerRenovar = ref(false);
+
 const SSO_ERRORES: Record<string, string> = {
   dominio: 'Esa cuenta de Microsoft no es del colegio. Entra con tu correo institucional.',
   cancelado: 'Cancelaste el inicio de sesión con Microsoft.',
@@ -192,6 +201,14 @@ function limpiarUrl(): void {
 
 onMounted(async () => {
   const params = new URLSearchParams(window.location.search);
+  const motivoLicencia = params.get('licencia');
+  if (motivoLicencia) {
+    loginError.value = MOTIVOS_LICENCIA[motivoLicencia] ?? MOTIVOS_LICENCIA.sin_licencia_activa;
+    ofrecerRenovar.value = motivoLicencia !== 'pago_en_revision';
+    const u = new URL(window.location.href);
+    u.searchParams.delete('licencia');
+    window.history.replaceState({}, '', u.pathname + (u.search || '') + u.hash);
+  }
   const tokenSso = params.get('sso_token');
   const errorSso = params.get('sso_error');
 
@@ -263,12 +280,15 @@ function fillDemo(tipo: 'estudiante' | 'docente') {
 async function handleLogin() {
   isLoading.value = true;
   loginError.value = '';
+  ofrecerRenovar.value = false;
   try {
     await authStore.login(loginForm.value.email, loginForm.value.password);
     const redirect = router.currentRoute.value.query.redirect as string;
     await router.push(redirect || '/mapa');
   } catch (e: any) {
-    loginError.value = e.message ?? e.error ?? 'Error al iniciar sesión';
+    loginError.value = e.error ?? e.message ?? 'Error al iniciar sesión';
+    // Credenciales correctas pero sin licencia vigente: se ofrece renovar.
+    if (e.motivo && e.motivo !== 'pago_en_revision') ofrecerRenovar.value = true;
   } finally {
     isLoading.value = false;
   }
@@ -512,6 +532,18 @@ async function handleRegister() {
 .sso-nota strong { color: rgba(255, 255, 255, 0.85); }
 
 .form-card--ninos { padding-top: 1.2rem; }
+
+.btn-renovar {
+  display: block;
+  text-align: center;
+  padding: 0.8rem 1rem;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #16A34A, #22C55E);
+  color: #fff;
+  font-weight: 800;
+  text-decoration: none;
+}
+.btn-renovar:hover { filter: brightness(1.08); }
 
 .demo-credentials {
   text-align: center;

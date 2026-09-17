@@ -26,7 +26,7 @@
 
       <div class="glass" id="escBox" style="padding:1.5rem;text-align:left;display:none;margin:1.6rem 0">
         <p class="sec-title" style="font-family:'Space Grotesk',sans-serif;font-size:1.05rem;margin:0 0 .8rem">🏫 Datos de tu institución</p>
-        <p class="muted" style="font-size:.9rem;margin:0 0 .6rem">Comparte estos códigos para inscribir a tus estudiantes y grupos. Guárdalos en un lugar seguro.</p>
+        <p class="muted" style="font-size:.9rem;margin:0 0 .6rem">Comparte estos códigos para inscribir a tus estudiantes y grupos. <strong>Cópialos ahora y guárdalos:</strong> también los verás en tu panel docente.</p>
         <label style="font-size:.8rem;color:var(--muted)">Código de institución</label>
         <div class="codebox"><code id="codInst">—</code><button class="copy" data-target="codInst">Copiar</button></div>
         <label style="font-size:.8rem;color:var(--muted)">Código del grupo principal (aula)</label>
@@ -37,13 +37,18 @@
         <a class="btn btn-primary" href="/app">🚀 Entrar a Codexia</a>
         <a class="btn btn-ghost" href="index.html">Volver al inicio</a>
       </div>
-      <p class="muted" style="font-size:.85rem;margin-top:1.4rem">Enviamos también los detalles a tu correo. ¿Dudas? ✉️ soporte@codexialab.com</p>
+      <p class="muted" style="font-size:.85rem;margin-top:1.4rem">Entra con el correo y la contraseña que registraste. Mercado Pago te envía el comprobante del pago. ¿Dudas? ✉️ soporte@codexialab.com</p>
     </div></section>
   </main>
   <script>
     (function () {
       var p = new URLSearchParams(location.search);
-      if (p.get('plan') === 'prueba') {
+      if (p.get('renovacion') === '1') {
+        document.querySelector('.eyebrow').textContent = 'Renovación aprobada';
+        document.getElementById('sub').textContent = p.get('plan') === 'prueba'
+          ? 'Tu acceso quedó renovado por 24 horas más.'
+          : 'Tu licencia quedó renovada por 1 año. Si aún tenías días de la anterior, se suman: no pierdes ninguno.';
+      } else if (p.get('plan') === 'prueba') {
         document.getElementById('sub').textContent = 'Tu prueba quedó activa por 24 horas. ¡Aprovéchala al máximo y explora todo Codexia!';
       }
       if (p.get('plan') === 'escuela') {

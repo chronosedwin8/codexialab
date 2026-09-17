@@ -295,6 +295,10 @@
     </section>
 
     <!-- ===================== SEDES ===================== -->
+    <section v-show="activeTab === 'pagos'" class="tab-panel">
+      <PanelPlanesPagos v-if="activeTab === 'pagos'" />
+    </section>
+
     <section v-show="activeTab === 'admin'" class="tab-panel">
       <PanelAdmin v-if="activeTab === 'admin'" />
     </section>
@@ -1054,6 +1058,7 @@ import { useAuthStore } from '@/stores/auth';
 import { teacherApi, curriculumApi, mensajeError } from '@/api/index';
 import PanelCredenciales from '@/components/PanelCredenciales.vue';
 import PanelAdmin from '@/components/PanelAdmin.vue';
+import PanelPlanesPagos from '@/components/PanelPlanesPagos.vue';
 import { MATERIAS } from '@/data/materias';
 
 const authStore = useAuthStore();
@@ -1080,7 +1085,12 @@ const tabs = computed(() => [
   { id: 'asignaciones', label: 'Asignaciones', icono: '📋' },
   { id: 'estadisticas', label: 'Estadísticas', icono: '📊' },
   // Control total de las cuentas: solo para administradores.
-  ...(esAdmin.value ? [{ id: 'admin', label: 'Administración', icono: '🛡️' }] : []),
+  ...(esAdmin.value
+    ? [
+        { id: 'admin', label: 'Administración', icono: '🛡️' },
+        { id: 'pagos', label: 'Planes y pagos', icono: '💳' },
+      ]
+    : []),
 ]);
 const activeTab = ref('grupos');
 

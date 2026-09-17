@@ -15,6 +15,7 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import { PrismaClient, type RolUsuario } from '@prisma/client';
+import { CLAVES_PLAN, MONTO_MAX_COP, MONTO_MIN_COP, invalidarPlanes, obtenerPlanes, type ClavePlan } from '../lib/planes.js';
 
 const prisma = new PrismaClient();
 
@@ -45,6 +46,8 @@ export const adminRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
   /** Puerta única: todo lo de este módulo es solo para administradores. */
   fastify.addHook('preHandler', async (request, reply) => {
     await fastify.authenticate(request, reply);
+    // Si authenticate ya respondió (sesión inválida), no se responde dos veces.
+    if (reply.sent) return reply;
     const user = request.user as { rol?: string } | undefined;
     if (user?.rol !== 'admin') {
       return reply.code(403).send({ error: 'Solo un administrador puede entrar aquí' });
@@ -304,6 +307,168 @@ export const adminRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
 
     request.log.warn({ id, email: destino.email, por: actor.id }, 'Cuenta eliminada desde administración');
     return reply.send({ ok: true, nombre: destino.nombre, sesionesBorradas: destino._count.sesiones });
+  });
+
+  // ─────────────────────────── Planes y precios ───────────────────────────
+
+  fastify.get('/planes', async (_request, reply) => {
+    const planes = await obtenerPlanes();
+    return reply.send({ planes, limites: { minimo: MONTO_MIN_COP, maximo: MONTO_MAX_COP } });
+  });
+
+  /**
+   * Cambia el precio (o la disponibilidad) de un plan. Surte efecto en el
+   * checkout de inmediato. No toca licencias ya compradas: cada una guarda el
+   * precio que se pagó.
+   */
+  fastify.patch('/planes/:clave', async (request, reply) => {
+    const actor = request.user as { id: number };
+    const clave = (request.params as { clave: string }).clave as ClavePlan;
+    if (!CLAVES_PLAN.includes(clave)) return reply.code(404).send({ error: 'Ese plan no existe' });
+
+    const schema = z.object({
+      precio_cop: z.number().int().min(MONTO_MIN_COP).max(MONTO_MAX_COP).optional(),
+      nombre: z.string().trim().min(2).max(80).optional(),
+      activo: z.boolean().optional(),
+    });
+    const r = schema.safeParse(request.body);
+    if (!r.success) {
+      const campo = String(r.error.issues[0]?.path[0] ?? '');
+      return reply.code(400).send({
+        error: campo === 'precio_cop'
+          ? `El precio debe ser un número entero entre $${MONTO_MIN_COP.toLocaleString('es-CO')} y $${MONTO_MAX_COP.toLocaleString('es-CO')} COP (límites de Mercado Pago)`
+          : 'Revisa los datos del plan',
+      });
+    }
+    if (r.data.precio_cop === undefined && r.data.nombre === undefined && r.data.activo === undefined) {
+      return reply.code(400).send({ error: 'No hay nada que cambiar' });
+    }
+
+    const antes = (await obtenerPlanes()).find((p) => p.clave === clave)!;
+    const plan = await prisma.plan.upsert({
+      where: { clave },
+      create: {
+        clave,
+        nombre: r.data.nombre ?? antes.nombre,
+        precioCop: r.data.precio_cop ?? antes.precioCop,
+        activo: r.data.activo ?? antes.activo,
+        actualizadoPor: actor.id,
+      },
+      update: {
+        ...(r.data.precio_cop !== undefined ? { precioCop: r.data.precio_cop } : {}),
+        ...(r.data.nombre !== undefined ? { nombre: r.data.nombre } : {}),
+        ...(r.data.activo !== undefined ? { activo: r.data.activo } : {}),
+        actualizadoEn: new Date(),
+        actualizadoPor: actor.id,
+      },
+    });
+    invalidarPlanes();
+
+    const cambios: string[] = [];
+    if (r.data.precio_cop !== undefined && r.data.precio_cop !== antes.precioCop) cambios.push(`precio ${antes.precioCop}→${r.data.precio_cop}`);
+    if (r.data.activo !== undefined && r.data.activo !== antes.activo) cambios.push(r.data.activo ? 'activado' : 'desactivado');
+    if (r.data.nombre !== undefined && r.data.nombre !== antes.nombre) cambios.push('nombre');
+    await prisma.accessAudit.create({
+      data: { actorId: actor.id, accion: 'cambiar_plan', recurso: `plan:${clave} ${cambios.join(', ') || 'sin cambios'}`.slice(0, 200), ip: request.ip },
+    }).catch(() => { /* noop */ });
+
+    return reply.send({ plan });
+  });
+
+  // ─────────────────────────────── Pagos ───────────────────────────────
+
+  /** Licencias vendidas y notificaciones recibidas de Mercado Pago. */
+  fastify.get('/pagos', async (request, reply) => {
+    const { limite } = request.query as { limite?: string };
+    const take = Math.min(Math.max(parseInt(limite ?? '50', 10) || 50, 1), 200);
+
+    const [licencias, eventos, porEstado, ingresos] = await Promise.all([
+      prisma.licencia.findMany({
+        orderBy: { creadoEn: 'desc' },
+        take,
+        select: {
+          id: true, tipo: true, estado: true, precioCop: true, mpPaymentId: true, mpStatus: true,
+          mpStatusDetail: true, emailComprador: true, inicioVigencia: true, finVigencia: true, creadoEn: true,
+          usuario: { select: { id: true, nombre: true, email: true } },
+          institucion: { select: { nombre: true } },
+        },
+      }),
+      prisma.pagoEvento.findMany({ orderBy: { recibidoEn: 'desc' }, take }),
+      prisma.licencia.groupBy({ by: ['estado'], _count: { _all: true } }),
+      prisma.licencia.aggregate({ where: { estado: { in: ['activa', 'vencida'] } }, _sum: { precioCop: true }, _count: { _all: true } }),
+    ]);
+
+    return reply.send({
+      licencias,
+      eventos,
+      resumen: {
+        porEstado: Object.fromEntries(porEstado.map((e) => [e.estado, e._count._all])),
+        pagadas: ingresos._count._all,
+        ingresosCop: ingresos._sum.precioCop ?? 0,
+      },
+    });
+  });
+
+  /**
+   * ¿Está todo listo para cobrar? Revisa la configuración y habla con Mercado
+   * Pago de verdad, para que el administrador lo confirme sin depender de nadie.
+   */
+  fastify.get('/pagos/diagnostico', async (_request, reply) => {
+    const accessToken = process.env.MP_ACCESS_TOKEN ?? '';
+    const publicKey = process.env.MP_PUBLIC_KEY ?? '';
+    const base = (process.env.PUBLIC_BASE_URL ?? '').replace(/\/+$/, '');
+    const webhookUrl = base ? `${base}/api/pagos/webhook` : null;
+
+    const chequeos: Array<{ id: string; ok: boolean; titulo: string; detalle: string; critico: boolean }> = [];
+    const agregar = (id: string, ok: boolean, titulo: string, detalle: string, critico = true) =>
+      chequeos.push({ id, ok, titulo, detalle, critico });
+
+    agregar('access_token', accessToken.startsWith('APP_USR-'), 'Access Token de producción',
+      accessToken ? (accessToken.startsWith('APP_USR-') ? 'Configurado (producción)' : 'Es de PRUEBA (TEST-): no cobra dinero real') : 'Falta MP_ACCESS_TOKEN');
+    agregar('public_key', publicKey.startsWith('APP_USR-'), 'Public Key de producción',
+      publicKey ? (publicKey.startsWith('APP_USR-') ? 'Configurada (producción)' : 'Es de PRUEBA (TEST-)') : 'Falta MP_PUBLIC_KEY');
+    agregar('url_publica', base.startsWith('https://') && !base.includes('localhost'), 'URL pública HTTPS',
+      base ? `${base}${base.startsWith('https://') ? '' : ' — debe ser https para recibir notificaciones'}` : 'Falta PUBLIC_BASE_URL');
+    agregar('firma_webhook', Boolean(process.env.MP_WEBHOOK_SECRET), 'Clave secreta del webhook',
+      process.env.MP_WEBHOOK_SECRET
+        ? 'Configurada: se verifica la firma de cada notificación'
+        : 'Sin configurar. Los pagos funcionan igual (cada notificación se verifica consultando la API), pero conviene cargarla',
+      false);
+
+    let cuenta: Record<string, unknown> | null = null;
+    if (accessToken) {
+      try {
+        const res = await fetch('https://api.mercadopago.com/users/me', {
+          headers: { Authorization: `Bearer ${accessToken}` },
+          signal: AbortSignal.timeout(15_000),
+        });
+        const d: any = await res.json().catch(() => ({}));
+        if (res.ok) {
+          cuenta = { id: d.id, nickname: d.nickname, pais: d.site_id, prueba: (d.tags ?? []).includes('test_user') };
+          agregar('conexion', true, 'Conexión con Mercado Pago', `Cuenta ${d.nickname} (${d.site_id})`);
+          agregar('pais', d.site_id === 'MCO', 'Cuenta de Colombia', d.site_id === 'MCO' ? 'Cobra en pesos colombianos' : `La cuenta es de ${d.site_id}, no de Colombia`);
+        } else {
+          agregar('conexion', false, 'Conexión con Mercado Pago', `Mercado Pago respondió ${res.status}: ${d.message ?? 'credencial inválida'}`);
+        }
+      } catch (e) {
+        agregar('conexion', false, 'Conexión con Mercado Pago', `No se pudo conectar: ${(e as Error).message}`);
+      }
+    }
+
+    if (publicKey) {
+      try {
+        const res = await fetch(`https://api.mercadopago.com/v1/identification_types?public_key=${encodeURIComponent(publicKey)}`, {
+          signal: AbortSignal.timeout(15_000),
+        });
+        agregar('public_key_valida', res.ok, 'Public Key aceptada por Mercado Pago', res.ok ? 'El formulario de pago podrá tokenizar tarjetas' : `Mercado Pago respondió ${res.status}`);
+      } catch (e) {
+        agregar('public_key_valida', false, 'Public Key aceptada por Mercado Pago', (e as Error).message);
+      }
+    }
+
+    const ultimoWebhook = await prisma.pagoEvento.findFirst({ where: { origen: 'webhook' }, orderBy: { recibidoEn: 'desc' } });
+    const listo = chequeos.filter((c) => c.critico).every((c) => c.ok);
+    return reply.send({ listo, chequeos, cuenta, webhookUrl, ultimoWebhook });
   });
 
   // ──────────────────────────── Auditoría ────────────────────────────

@@ -337,3 +337,31 @@ model Licencia {
 
   @@map("licencias")
 }
+
+/// Planes a la venta, con precio administrable desde el panel.
+model Plan {
+  clave          String   @id @db.VarChar(20)
+  nombre         String   @db.VarChar(80)
+  precioCop      Int      @map("precio_cop")
+  activo         Boolean  @default(true)
+  actualizadoEn  DateTime @default(now()) @map("actualizado_en") @db.Timestamptz()
+  actualizadoPor Int?     @map("actualizado_por")
+
+  @@map("planes")
+}
+
+/// Notificaciones de Mercado Pago recibidas y qué se hizo con cada una.
+model PagoEvento {
+  id          Int      @id @default(autoincrement())
+  recibidoEn  DateTime @default(now()) @map("recibido_en") @db.Timestamptz()
+  origen      String   @db.VarChar(20)
+  tipo        String?  @db.VarChar(40)
+  paymentId   String?  @map("payment_id") @db.VarChar(60)
+  licenciaId  Int?     @map("licencia_id")
+  mpStatus    String?  @map("mp_status") @db.VarChar(40)
+  firma       String?  @db.VarChar(20)
+  resultado   String   @db.VarChar(60)
+  detalle     String?  @db.VarChar(300)
+
+  @@map("pagos_eventos")
+}

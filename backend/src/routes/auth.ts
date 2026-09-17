@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyPluginAsync } from 'fastify';
 import { z } from 'zod';
 import bcrypt from 'bcrypt';
 import { randomUUID } from 'node:crypto';
+import { estadoAcceso } from '../lib/accesoLicencia.js';
 import { PrismaClient } from '@prisma/client';
 import {
   AUTO_CREAR,
@@ -37,7 +38,7 @@ const registerSchema = z.object({
 });
 
 const loginSchema = z.object({
-  email: z.string().email(),
+  email: z.string().trim().email(),
   password: z.string(),
 });
 
@@ -119,7 +120,12 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
       return reply.code(400).send({ error: 'Datos inválidos' });
     }
 
-    const { email, password } = result.data;
+    const { email: emailEscrito, password } = result.data;
+    // El checkout y los paneles guardan el correo en minúsculas. Se busca tal cual
+    // primero (por si hay cuentas antiguas con mayúsculas) y luego normalizado.
+    const email = (await prisma.user.findUnique({ where: { email: emailEscrito }, select: { id: true } }))
+      ? emailEscrito
+      : emailEscrito.trim().toLowerCase();
 
     const user = await prisma.user.findUnique({
       where: { email },
@@ -148,6 +154,13 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
     const validPassword = await bcrypt.compare(password, user.passwordHash);
     if (!validPassword) {
       return reply.code(401).send({ error: 'Credenciales incorrectas' });
+    }
+
+    // Credenciales correctas pero licencia no vigente: se explica el motivo aquí,
+    // al entrar, en lugar de dejar pasar y que cada pantalla falle después.
+    const acceso = await estadoAcceso(user.id, user.rol);
+    if (!acceso.permitido) {
+      return reply.code(402).send({ error: acceso.mensaje, motivo: acceso.motivo, renovar: '/planes.html' });
     }
 
     // Actualizar racha y última actividad
@@ -451,6 +464,11 @@ export const authRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) =
 
     // Acceso correcto: se olvidan los fallos anteriores.
     olvidarFallos(usuario);
+
+    const acceso = await estadoAcceso(nino.id, nino.rol);
+    if (!acceso.permitido) {
+      return reply.code(402).send({ error: 'Pídele ayuda a un adulto: tu cuenta necesita renovarse.', motivo: acceso.motivo });
+    }
     await prisma.user.update({ where: { id: nino.id }, data: { ultimaActividad: new Date() } });
 
     const token = fastify.jwt.sign({ id: nino.id, email: nino.email, rol: nino.rol, nombre: nino.nombre });

@@ -10,6 +10,7 @@ import { submissionRoutes } from './routes/submissions.js';
 import { storeRoutes } from './routes/store.js';
 import { teacherRoutes } from './routes/teacher.js';
 import { adminRoutes } from './routes/admin.js';
+import { estadoAcceso } from './lib/accesoLicencia.js';
 import { juegosRoutes } from './routes/juegos.js';
 import { pagosRoutes } from './routes/pagos.js';
 import fastifyStatic from '@fastify/static';
@@ -63,7 +64,21 @@ async function bootstrap() {
     try {
       await request.jwtVerify();
     } catch (err) {
-      reply.code(401).send({ error: 'No autorizado', message: 'Token inválido o expirado' });
+      return reply.code(401).send({ error: 'No autorizado', message: 'Token inválido o expirado' });
+    }
+
+    // Licencia: una cuenta comprada solo entra mientras su licencia esté vigente.
+    // Se comprueba aquí, en cada petición, y no solo al iniciar sesión, porque el
+    // token dura 7 días y la Prueba solo 24 horas. Las cuentas del colegio (sin
+    // licencias) pasan siempre: ver lib/accesoLicencia.ts.
+    const u = request.user as { id?: number; rol?: string } | undefined;
+    if (u?.id) {
+      const acceso = await estadoAcceso(u.id, u.rol);
+      if (!acceso.permitido) {
+        // 402 y no 401: la sesión es válida, lo que falta es el pago. Así el
+        // frontend no cierra la sesión sin más, sino que ofrece renovar.
+        return reply.code(402).send({ error: acceso.mensaje, motivo: acceso.motivo, renovar: '/planes.html' });
+      }
     }
   });
 
