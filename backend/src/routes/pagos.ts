@@ -352,10 +352,19 @@ export const pagosRoutes: FastifyPluginAsync = async (fastify: FastifyInstance) 
         secreto: process.env.MP_WEBHOOK_SECRET,
       });
 
+      // Por qué canal llegó: qué trae la URL y el cuerpo. Sirve para diagnosticar y
+      // no incluye la firma ni ningún secreto.
+      const canal = [
+        `q:${Object.keys(query).sort().join(',') || '-'}`,
+        `b:${Object.keys(body).sort().join(',') || '-'}`,
+        `sig:${request.headers['x-signature'] ? 'si' : 'no'}`,
+        body.action ? `act:${body.action}` : '',
+      ].filter(Boolean).join(' ');
+
       // Siempre 200: Mercado Pago solo necesita saber que la recibimos. Lo que se
       // hace con ella queda en pagos_eventos.
       try {
-        await procesarNotificacion({ tipo, paymentId, firma });
+        await procesarNotificacion({ tipo, paymentId, firma, canal });
       } catch (err) {
         request.log.error({ err, tipo, paymentId }, 'Error procesando notificación de Mercado Pago');
         await anotarEvento({ origen: 'webhook', resultado: 'error', tipo, paymentId, firma, detalle: (err as Error)?.message });
@@ -378,18 +387,21 @@ function montoCorrecto(mp: MpPago, precioEsperado: number): { ok: boolean; motiv
   return { ok: true };
 }
 
-async function procesarNotificacion(n: { tipo?: string; paymentId?: string; firma: ResultadoFirma }) {
-  const { tipo, paymentId, firma } = n;
+async function procesarNotificacion(n: { tipo?: string; paymentId?: string; firma: ResultadoFirma; canal?: string }) {
+  const { tipo, paymentId, firma, canal } = n;
+  // Cada evento del webhook lleva al final el canal por el que llegó.
+  const conCanal = (detalle?: string | null) =>
+    [detalle, canal ? `[${canal}]` : null].filter(Boolean).join(' ').slice(0, 300);
 
   if (tipo !== 'payment' || !paymentId) {
-    await anotarEvento({ origen: 'webhook', resultado: 'ignorado', tipo, paymentId, firma, detalle: 'no es una notificación de pago' });
+    await anotarEvento({ origen: 'webhook', resultado: 'ignorado', tipo, paymentId, firma, detalle: conCanal('no es una notificación de pago') });
     return;
   }
-  // Firma presente pero incorrecta: es falsa. No se gasta ni una consulta en ella.
-  if (firma === 'invalida') {
-    await anotarEvento({ origen: 'webhook', resultado: 'firma_invalida', tipo, paymentId, firma });
-    return;
-  }
+  // Una firma inválida NO descarta la notificación. Verificado en producción: por el
+  // mismo pago Mercado Pago envía dos avisos (el del panel de Webhooks y el de la
+  // notification_url del pago) y solo uno trae una firma que coincide con la clave.
+  // Descartar el otro podría perder una aprobación. No hay riesgo en procesarlo: el
+  // estado nunca se toma de la notificación, se consulta a la API con nuestro token.
 
   // La notificación solo dice "mira este pago". Su estado real lo da la API.
   let mp: MpPago;
@@ -398,7 +410,7 @@ async function procesarNotificacion(n: { tipo?: string; paymentId?: string; firm
   } catch (err: any) {
     await anotarEvento({
       origen: 'webhook', resultado: err?.statusCode === 404 ? 'pago_no_existe' : 'error_consultando',
-      tipo, paymentId, firma, detalle: err?.message,
+      tipo, paymentId, firma, detalle: conCanal(err?.message),
     });
     return;
   }
@@ -411,7 +423,7 @@ async function procesarNotificacion(n: { tipo?: string; paymentId?: string; firm
       })
     : null;
   if (!lic) {
-    await anotarEvento({ origen: 'webhook', resultado: 'sin_licencia', tipo, paymentId, mpStatus: mp.status, firma, detalle: `external_reference=${mp.external_reference ?? '-'}` });
+    await anotarEvento({ origen: 'webhook', resultado: 'sin_licencia', tipo, paymentId, mpStatus: mp.status, firma, detalle: conCanal(`external_reference=${mp.external_reference ?? '-'}`) });
     return;
   }
 
@@ -421,33 +433,35 @@ async function procesarNotificacion(n: { tipo?: string; paymentId?: string; firm
   });
 
   const base = { origen: 'webhook' as const, tipo, paymentId, licenciaId: lic.id, mpStatus: mp.status, firma };
+  const anotar = (e: { resultado: string; detalle?: string | null }): Promise<void> =>
+    anotarEvento({ ...base, resultado: e.resultado, detalle: conCanal(e.detalle) });
 
   switch (mp.status) {
     case 'approved': {
       if (lic.estado === 'activa') {
-        await anotarEvento({ ...base, resultado: 'ya_activa' });
+        await anotar({ resultado: 'ya_activa' });
         return;
       }
       const v = montoCorrecto(mp, lic.precioCop);
       if (!v.ok) {
-        await anotarEvento({ ...base, resultado: 'monto_no_coincide', detalle: v.motivo });
+        await anotar({ resultado: 'monto_no_coincide', detalle: v.motivo });
         return;
       }
       await activarLicencia(lic.id);
-      await anotarEvento({ ...base, resultado: 'activada', detalle: `${lic.precioCop} COP` });
+      await anotar({ resultado: 'activada', detalle: `${lic.precioCop} COP` });
       return;
     }
     case 'in_process':
     case 'pending':
     case 'authorized':
       if (lic.usuarioId) invalidarAcceso(lic.usuarioId);
-      await anotarEvento({ ...base, resultado: 'en_revision', detalle: mp.status_detail });
+      await anotar({ resultado: 'en_revision', detalle: mp.status_detail });
       return;
 
     case 'rejected':
     case 'cancelled': {
       if (lic.estado !== 'pendiente') {
-        await anotarEvento({ ...base, resultado: 'ignorado', detalle: `licencia ya ${lic.estado}` });
+        await anotar({ resultado: 'ignorado', detalle: `licencia ya ${lic.estado}` });
         return;
       }
       // Un pago en revisión que termina rechazado: si la compra creó la cuenta, se
@@ -456,7 +470,7 @@ async function procesarNotificacion(n: { tipo?: string; paymentId?: string; firm
       if (lic.usuarioId) {
         await descartarCompra({ licenciaId: lic.id, usuarioId: lic.usuarioId, institucionId: lic.institucionId, cuentaNueva });
       }
-      await anotarEvento({ ...base, resultado: cuentaNueva ? 'rechazada_cuenta_liberada' : 'rechazada', detalle: mp.status_detail });
+      await anotar({ resultado: cuentaNueva ? 'rechazada_cuenta_liberada' : 'rechazada', detalle: mp.status_detail });
       return;
     }
     case 'refunded':
@@ -464,11 +478,11 @@ async function procesarNotificacion(n: { tipo?: string; paymentId?: string; firm
       // Devolución o contracargo: la licencia deja de valer.
       await prisma.licencia.update({ where: { id: lic.id }, data: { estado: 'cancelada' } });
       if (lic.usuarioId) invalidarAcceso(lic.usuarioId);
-      await anotarEvento({ ...base, resultado: 'revocada', detalle: mp.status });
+      await anotar({ resultado: 'revocada', detalle: mp.status });
       return;
     }
     default:
-      await anotarEvento({ ...base, resultado: 'sin_accion', detalle: mp.status });
+      await anotar({ resultado: 'sin_accion', detalle: mp.status });
   }
 }
 
